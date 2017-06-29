@@ -249,13 +249,19 @@
       </dependency>
       <dependency>
          <groupId>org.apache.directory.server</groupId>
-         <artifactId>apacheds-server-integ</artifactId>
+         <artifactId>apacheds-test-framework</artifactId>
          <version>${directory-version}</version>
          <scope>test</scope>
+         <exclusions>
+            <exclusion>
+               <groupId>org.apache.directory.api</groupId>
+               <artifactId>api-ldap-schema-data</artifactId>
+            </exclusion>
+         </exclusions>
       </dependency>
       <dependency>
          <groupId>org.apache.directory.server</groupId>
-         <artifactId>apacheds-core-integ</artifactId>
+         <artifactId>apacheds-server-annotations</artifactId>
          <version>${directory-version}</version>
          <scope>test</scope>
          <exclusions>
@@ -328,6 +334,66 @@
             </exclusion>
          </exclusions>
       </dependency>
+
+      <dependency>
+         <groupId>org.apache.hadoop</groupId>
+         <artifactId>hadoop-minikdc</artifactId>
+         <version>2.8.1</version>
+         <scope>test</scope>
+         <!--exclusions>
+            <exclusion>
+               <groupId>org.apache.directory.api</groupId>
+               <artifactId>api-all</artifactId>
+            </exclusion>
+         </exclusions>
+            <exclusion>
+               <groupId>org.apache.directory.server</groupId>
+               <artifactId>apacheds-core-api</artifactId>
+            </exclusion>
+            <exclusion>
+               <groupId>org.apache.directory.server</groupId>
+               <artifactId>apacheds-protocol-shared</artifactId>
+            </exclusion>
+            <exclusion>
+               <groupId>org.apache.directory.server</groupId>
+               <artifactId>apacheds-ldif-partition</artifactId>
+            </exclusion>
+            <exclusion>
+               <groupId>org.apache.directory.server</groupId>
+               <artifactId>apacheds-protocol-kerberos</artifactId>
+            </exclusion>
+            <exclusion>
+               <groupId>org.apache.directory.server</groupId>
+               <artifactId>apacheds-interceptor-kerberos</artifactId>
+            </exclusion>
+            <exclusion>
+               <groupId>org.apache.directory.server</groupId>
+               <artifactId>apacheds-jdbm-partition</artifactId>
+            </exclusion>
+            <exclusion>
+               <groupId>org.apache.directory.server</groupId>
+               <artifactId>apacheds-protocol-ldap</artifactId>
+            </exclusion>
+            <exclusion>
+               <groupId>org.apache.directory.server</groupId>
+               <artifactId>apacheds-mavibot-partition</artifactId>
+            </exclusion>
+         </exclusions -->
+      </dependency>
+      <dependency>
+         <groupId>org.apache.directory.jdbm</groupId>
+         <artifactId>apacheds-jdbm2</artifactId>
+         <version>2.0.0-M1</version>
+         <scope>test</scope>
+      </dependency>
+      <!--dependency>
+         <groupId>org.apache.directory.server</groupId>
+         <artifactId>apacheds-core</artifactId>
+         <version>${directory-version}</version>
+         <scope>test</scope>
+      </dependency -->
+
+
    </dependencies>
 
    <build>

@@ -94,7 +94,7 @@
       </dependency>
       <dependency>
          <groupId>org.apache.directory.server</groupId>
-         <artifactId>apacheds-server-integ</artifactId>
+         <artifactId>apacheds-test-framework</artifactId>
          <version>${directory-version}</version>
          <scope>test</scope>
          <exclusions>
@@ -104,7 +104,7 @@
             </exclusion>
          </exclusions>
       </dependency>
-      <dependency>
+      <!--dependency>
          <groupId>org.apache.directory.server</groupId>
          <artifactId>apacheds-core-integ</artifactId>
          <version>${directory-version}</version>
@@ -115,7 +115,7 @@
                <artifactId>bcprov-jdk15</artifactId>
             </exclusion>
          </exclusions>
-      </dependency>
+      </dependency -->
 
       <dependency>
          <groupId>org.apache.activemq</groupId>
