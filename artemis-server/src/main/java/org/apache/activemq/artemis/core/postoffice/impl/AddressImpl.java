@@ -49,7 +49,7 @@ public class AddressImpl implements Address {
       this.address = address;
       this.wildcardConfiguration = wildcardConfiguration;
       addressParts = address.split(wildcardConfiguration.getDelimiter());
-      containsWildCard = address.contains(wildcardConfiguration.getSingleWord()) || address.contains(wildcardConfiguration.getAnyWords());
+      containsWildCard = address.containsEitherOf(wildcardConfiguration.getSingleWord(), wildcardConfiguration.getAnyWords());
    }
 
    @Override
@@ -77,9 +77,12 @@ public class AddressImpl implements Address {
       if (linkedAddresses == null) {
          linkedAddresses = new ArrayList<>(1);
       }
-      if (!linkedAddresses.contains(address)) {
+      // Assert
+//      if (linkedAddresses.contains(address)) {
+//         throw new Error("need to check for dups");
+//      }
          linkedAddresses.add(address);
-      }
+  //    }
    }
 
    @Override

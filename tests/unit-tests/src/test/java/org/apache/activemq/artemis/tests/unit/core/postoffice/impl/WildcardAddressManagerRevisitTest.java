@@ -17,9 +17,11 @@
 package org.apache.activemq.artemis.tests.unit.core.postoffice.impl;
 
 import java.lang.reflect.Field;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.activemq.artemis.api.core.Message;
 import org.apache.activemq.artemis.api.core.RoutingType;
@@ -32,21 +34,26 @@ import org.apache.activemq.artemis.core.postoffice.BindingType;
 import org.apache.activemq.artemis.core.postoffice.Bindings;
 import org.apache.activemq.artemis.core.postoffice.BindingsFactory;
 import org.apache.activemq.artemis.core.postoffice.QueueBinding;
+import org.apache.activemq.artemis.core.postoffice.impl.BindingsImpl;
 import org.apache.activemq.artemis.core.postoffice.impl.WildcardAddressManager;
 import org.apache.activemq.artemis.core.server.Bindable;
 import org.apache.activemq.artemis.core.server.Queue;
 import org.apache.activemq.artemis.core.server.RoutingContext;
 import org.apache.activemq.artemis.core.server.cluster.impl.MessageLoadBalancingType;
 import org.apache.activemq.artemis.core.server.impl.AddressInfo;
-import org.apache.activemq.artemis.tests.util.ActiveMQTestBase;
+import org.apache.activemq.artemis.utils.collections.ConcurrentHashSet;
 import org.jboss.logging.Logger;
 import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * This test is replicating the behaviour from https://issues.jboss.org/browse/HORNETQ-988.
  */
-public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
-   private static final Logger log = Logger.getLogger(WildcardAddressManagerUnitTest.class);
+public class WildcardAddressManagerRevisitTest {
+   private static final Logger log = Logger.getLogger(WildcardAddressManagerRevisitTest.class);
 
    @Test
    public void testUnitOnWildCardFailingScenario() throws Exception {
@@ -198,11 +205,77 @@ public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
 
    }
 
+
+   @Test
+   public void testConcurrency() throws Exception {
+
+      System.out.println("Type so we can go on..");
+      //TimeUnit.SECONDS.sleep(20);
+      System.out.println("we can go on..");
+
+      final WildcardConfiguration configuration = new WildcardConfiguration();
+      configuration.setAnyWords('>');
+      final WildcardAddressManager ad = new WildcardAddressManager(new BindingFactoryFake(), configuration, null, null);
+
+      final SimpleString wildCard = SimpleString.toSimpleString("Topic1.>");
+      ad.addAddressInfo(new AddressInfo(wildCard, RoutingType.MULTICAST));
+
+      int numSubs = 4000;
+      int numThreads = 1;
+      ExecutorService executorService = Executors.newFixedThreadPool(numThreads);
+
+      for (int i = 0; i < numSubs; i++ ) {
+         final int id = i;
+
+         executorService.submit(() -> {
+            try {
+
+               if (id % 500 == 0) {
+                  // give gc a chance
+                  Thread.yield();
+               }
+               if (id == 19) {
+                  System.err.println("100");
+               }
+               // subscribe as wildcard
+               ad.addBinding(new BindingFake(SimpleString.toSimpleString("Topic1.>"), SimpleString.toSimpleString(""+id), id));
+
+               SimpleString pubAddr = SimpleString.toSimpleString("Topic1." + id );
+               // publish
+               Bindings binding = ad.getBindingsForRoutingAddress(pubAddr);
+
+               System.err.println("1. Bindings for: " +  id + ", " + binding.getBindings().size());
+
+               // publish again
+               binding = ad.getBindingsForRoutingAddress(pubAddr);
+
+               System.err.println("2. Bindings for: " +  id + ", " + binding.getBindings().size());
+
+               // cluster consumer
+           //    ad.updateMessageLoadBalancingTypeForAddress(wildCard, MessageLoadBalancingType.ON_DEMAND);
+
+            } catch (Exception e) {
+               e.printStackTrace();
+            }
+         });
+      }
+
+      executorService.shutdown();
+      assertTrue("finished on time", executorService.awaitTermination(10, TimeUnit.MINUTES));
+
+      // TimeUnit.MINUTES.sleep(5);
+
+      System.out.println("Type so we can go on..");
+  //mapCapacityInitial    System.in.read();
+      System.out.println("we can go on..");
+
+
+   }
    class BindingFactoryFake implements BindingsFactory {
 
       @Override
       public Bindings createBindings(SimpleString address) throws Exception {
-         return new BindingsFake();
+         return new BindingsImpl(address, null);
       }
    }
 
@@ -210,14 +283,16 @@ public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
 
       final SimpleString address;
       final SimpleString id;
+      final Long idl;
 
       BindingFake(String addressParameter, String id) {
-         this(SimpleString.toSimpleString(addressParameter), SimpleString.toSimpleString(id));
+         this(SimpleString.toSimpleString(addressParameter), SimpleString.toSimpleString(id), System.identityHashCode(id) + System.currentTimeMillis());
       }
 
-      BindingFake(SimpleString addressParameter, SimpleString id) {
+      BindingFake(SimpleString addressParameter, SimpleString id, long idl) {
          this.address = addressParameter;
          this.id = id;
+         this.idl = idl;
       }
 
       @Override
@@ -237,7 +312,7 @@ public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
 
       @Override
       public BindingType getType() {
-         return null;
+         return BindingType.LOCAL_QUEUE;
       }
 
       @Override
@@ -247,7 +322,7 @@ public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
 
       @Override
       public SimpleString getRoutingName() {
-         return null;
+         return id;
       }
 
       @Override
@@ -272,7 +347,7 @@ public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
 
       @Override
       public Long getID() {
-         return Long.valueOf(0);
+         return idl;
       }
 
       @Override
@@ -306,7 +381,7 @@ public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
 
    class BindingsFake implements Bindings {
 
-      ArrayList<Binding> bindings = new ArrayList<>();
+      ConcurrentHashSet<Binding> bindings = new ConcurrentHashSet<>();
 
       @Override
       public Collection<Binding> getBindings() {
@@ -315,7 +390,7 @@ public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
 
       @Override
       public void addBinding(Binding binding) {
-         bindings.add(binding);
+         bindings.addIfAbsent(binding);
       }
 
       @Override
