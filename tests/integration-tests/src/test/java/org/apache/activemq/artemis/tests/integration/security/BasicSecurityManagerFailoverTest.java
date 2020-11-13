@@ -23,6 +23,7 @@ import org.apache.activemq.artemis.api.core.ActiveMQException;
 import org.apache.activemq.artemis.api.core.TransportConfiguration;
 import org.apache.activemq.artemis.api.core.client.ClientSession;
 import org.apache.activemq.artemis.api.core.client.ClientSessionFactory;
+import org.apache.activemq.artemis.api.core.client.ServerLocator;
 import org.apache.activemq.artemis.core.config.ha.SharedStoreMasterPolicyConfiguration;
 import org.apache.activemq.artemis.core.config.ha.SharedStoreSlavePolicyConfiguration;
 import org.apache.activemq.artemis.spi.core.security.ActiveMQBasicSecurityManager;
@@ -140,7 +141,8 @@ public class BasicSecurityManagerFailoverTest extends FailoverTestBase {
 
       liveServer.getServer().getActiveMQServerControl().addUser("foo", "bar", "baz", false);
 
-      ClientSessionFactory cf = createSessionFactory(getServerLocator());
+      final ServerLocator serverLocator = getServerLocator();
+      ClientSessionFactory cf = createSessionFactory(serverLocator);
       ClientSession session = null;
 
       try {
@@ -154,7 +156,7 @@ public class BasicSecurityManagerFailoverTest extends FailoverTestBase {
       waitForServerToStart(backupServer.getServer());
 
       try {
-         cf = createSessionFactory(getServerLocator());
+         cf = createSessionFactory(serverLocator);
          session = cf.createSession("foo", "bar", false, true, true, false, 0);
       } catch (ActiveMQException e) {
          e.printStackTrace();
