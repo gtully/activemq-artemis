@@ -19,7 +19,6 @@ package org.apache.activemq.artemis.tests.performance.jmh;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.activemq.artemis.api.core.Message;
-import org.apache.activemq.artemis.api.core.RoutingType;
 import org.apache.activemq.artemis.api.core.SimpleString;
 import org.apache.activemq.artemis.core.config.WildcardConfiguration;
 import org.apache.activemq.artemis.core.filter.Filter;
@@ -31,7 +30,6 @@ import org.apache.activemq.artemis.core.postoffice.impl.BindingsImpl;
 import org.apache.activemq.artemis.core.postoffice.impl.WildcardAddressManager;
 import org.apache.activemq.artemis.core.server.Bindable;
 import org.apache.activemq.artemis.core.server.RoutingContext;
-import org.apache.activemq.artemis.core.server.impl.AddressInfo;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Fork;
 import org.openjdk.jmh.annotations.Group;
@@ -52,7 +50,7 @@ public class WildcardAddressManagerPerfTest {
    private static class BindingFactoryFake implements BindingsFactory {
 
       @Override
-      public Bindings createBindings(SimpleString address) throws Exception {
+      public Bindings createBindings(SimpleString address) {
          return new BindingsImpl(address, null);
       }
    }
@@ -130,11 +128,11 @@ public class WildcardAddressManagerPerfTest {
       }
 
       @Override
-      public void route(Message message, RoutingContext context) throws Exception {
+      public void route(Message message, RoutingContext context) {
       }
 
       @Override
-      public void close() throws Exception {
+      public void close() {
       }
 
       @Override
@@ -165,22 +163,19 @@ public class WildcardAddressManagerPerfTest {
    static {
       WILDCARD_CONFIGURATION = new WildcardConfiguration();
       WILDCARD_CONFIGURATION.setAnyWords('>');
+      WILDCARD_CONFIGURATION.setSingleWord('*');
    }
-
-   private static final SimpleString WILDCARD = SimpleString.toSimpleString("Topic1.>");
 
    @Setup
    public void init() throws Exception {
       addressManager = new WildcardAddressManager(new BindingFactoryFake(), WILDCARD_CONFIGURATION, null, null);
 
-      addressManager.addAddressInfo(new AddressInfo(WILDCARD, RoutingType.MULTICAST));
-
       topics = 1 << topicsLog2;
       addresses = new SimpleString[topics];
       for (int i = 0; i < topics; i++) {
-         Binding binding = new BindingFake(WILDCARD, SimpleString.toSimpleString("" + i), i);
+         Binding binding = new BindingFake(SimpleString.toSimpleString("topic." + i % topicsLog2 + ".>"), SimpleString.toSimpleString("" + i), i);
          addressManager.addBinding(binding);
-         addresses[i] = SimpleString.toSimpleString("Topic1." + i);
+         addresses[i] = SimpleString.toSimpleString("Topic." + i % topicsLog2 + "." + i);
          addressManager.getBindingsForRoutingAddress(addresses[i]);
       }
       topicCounter = new AtomicLong(0);
@@ -201,7 +196,7 @@ public class WildcardAddressManagerPerfTest {
       @Setup
       public void init(WildcardAddressManagerPerfTest benchmarkState) {
          final long id = benchmarkState.nextId();
-         binding = new BindingFake(WILDCARD, SimpleString.toSimpleString("" + id), id);
+         binding = new BindingFake(SimpleString.toSimpleString("topic." + id % benchmarkState.topicsLog2 + ".>"), SimpleString.toSimpleString("" + id), id);
          addresses = benchmarkState.addresses;
       }
 
@@ -232,7 +227,7 @@ public class WildcardAddressManagerPerfTest {
    @Benchmark
    @GroupThreads(4)
    public Bindings testJustPublish(ThreadState state) throws Exception {
-      return addressManager.getBindingsForRoutingAddress(state.nextAddress());
+      return addressManager.getExistingBindingsForRoutingAddress(state.nextAddress());
    }
 
    @Benchmark

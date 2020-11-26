@@ -16,9 +16,7 @@
  */
 package org.apache.activemq.artemis.tests.unit.core.postoffice.impl;
 
-import java.lang.reflect.Field;
 import java.util.Collection;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,7 +29,6 @@ import org.apache.activemq.artemis.api.core.RoutingType;
 import org.apache.activemq.artemis.api.core.SimpleString;
 import org.apache.activemq.artemis.core.config.WildcardConfiguration;
 import org.apache.activemq.artemis.core.filter.Filter;
-import org.apache.activemq.artemis.core.postoffice.Address;
 import org.apache.activemq.artemis.core.postoffice.Binding;
 import org.apache.activemq.artemis.core.postoffice.BindingType;
 import org.apache.activemq.artemis.core.postoffice.Bindings;
@@ -116,33 +113,27 @@ public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
 
    /**
     * Test for ARTEMIS-1610
-    * @throws Exception
     */
-   @SuppressWarnings("unchecked")
    @Test
    public void testWildCardAddressRemoval() throws Exception {
 
       WildcardAddressManager ad = new WildcardAddressManager(new BindingFactoryFake(), null, null);
       ad.addAddressInfo(new AddressInfo(SimpleString.toSimpleString("Queue1.#"), RoutingType.ANYCAST));
       ad.addAddressInfo(new AddressInfo(SimpleString.toSimpleString("Topic1.#"), RoutingType.MULTICAST));
-      ad.addBinding(new BindingFake("Topic1.topic", "two"));
+      ad.addBinding(new BindingFake("Topic1.#", "two"));
       ad.addBinding(new BindingFake("Queue1.#", "one"));
-
-      Field wildcardAddressField = WildcardAddressManager.class.getDeclaredField("wildCardAddresses");
-      wildcardAddressField.setAccessible(true);
-      Map<SimpleString, Address> wildcardAddresses = (Map<SimpleString, Address>)wildcardAddressField.get(ad);
 
       //Calling this method will trigger the wildcard to be added to the wildcard map internal
       //to WildcardAddressManager
-      ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("Topic1.#"));
+      ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("Topic1.topic"));
 
       //Remove the address
       ad.removeAddressInfo(SimpleString.toSimpleString("Topic1.#"));
 
       //Verify the address was cleaned up properly
-      assertEquals(1, wildcardAddresses.size());
+      //assertEquals(1, wildcardAddresses.size());
       assertNull(ad.getAddressInfo(SimpleString.toSimpleString("Topic1.#")));
-      assertNull(wildcardAddresses.get(SimpleString.toSimpleString("Topic1.#")));
+      //assertNull(wildcardAddresses.get(SimpleString.toSimpleString("Topic1.#")));
    }
 
    @Test
@@ -152,25 +143,6 @@ public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
       Assert.assertTrue(ad.addBinding(new BindingFake("Queue1.#", "one")));
    }
 
-   @Test
-   public void tesWildcardOnClusterUpdate() throws Exception {
-      WildcardAddressManager ad = new WildcardAddressManager(new BindingFactoryFake(), null, null);
-      ad.addAddressInfo(new AddressInfo(SimpleString.toSimpleString("Queue1.#"), RoutingType.ANYCAST));
-      Assert.assertTrue(ad.addBinding(new BindingFake("Queue1.A", "oneOnA")));
-      Assert.assertTrue(ad.addBinding(new BindingFake("Queue1.#", "one")));
-
-      Field wildcardAddressField = WildcardAddressManager.class.getDeclaredField("wildCardAddresses");
-      wildcardAddressField.setAccessible(true);
-      Map<SimpleString, Address> wildcardAddresses = (Map<SimpleString, Address>)wildcardAddressField.get(ad);
-      SimpleString addressOfInterest = SimpleString.toSimpleString("Queue1.#");
-      assertEquals(1, wildcardAddresses.get(addressOfInterest).getLinkedAddresses().size());
-      // whack the existing state, it should remain whacked!
-      wildcardAddresses.get(addressOfInterest).getLinkedAddresses().clear();
-
-      // new binding on existing address, verify just reads linkedAddresses
-      Assert.assertTrue(ad.addBinding(new BindingFake("Queue1.A", "twoOnA")));
-      assertTrue("no addresses added", wildcardAddresses.get(addressOfInterest).getLinkedAddresses().isEmpty());
-   }
 
    @Test(expected = ActiveMQQueueExistsException.class)
    public void testWildCardAddAlreadyExistingBindingShouldThrowException() throws Exception {
@@ -190,7 +162,7 @@ public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
       ad.addAddressInfo(new AddressInfo(SimpleString.toSimpleString("Topic1.test"), RoutingType.MULTICAST));
       ad.addBinding(new BindingFake("Topic1.>", "one"));
 
-      assertEquals(1, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("Topic1.>")).getBindings().size());
+      assertEquals(1, ad.getExistingBindingsForRoutingAddress(SimpleString.toSimpleString("Topic1.>")).getBindings().size());
       assertEquals(1, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("Topic1.test")).getBindings().size());
       assertEquals(0, ad.getDirectBindings(SimpleString.toSimpleString("Topic1.test")).size());
       assertEquals(1, ad.getDirectBindings(SimpleString.toSimpleString("Topic1.>")).size());
@@ -225,7 +197,7 @@ public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
       ad.addBinding(new BindingFake("Topic1.test", "two"));
       ad.addBinding(new BindingFake("Topic2.test", "three"));
 
-      assertEquals(1, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("Topic1.>")).getBindings().size());
+      assertEquals(1, ad.getExistingBindingsForRoutingAddress(SimpleString.toSimpleString("Topic1.>")).getBindings().size());
       assertEquals(2, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("Topic1.test")).getBindings().size());
       assertEquals(1, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("Topic1.test.test1")).getBindings().size());
       assertEquals(1, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("Topic1.test.test2")).getBindings().size());
@@ -236,6 +208,60 @@ public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
       assertEquals(0, ad.getDirectBindings(SimpleString.toSimpleString("Topic1.test2")).size());
       assertEquals(0, ad.getDirectBindings(SimpleString.toSimpleString("Topic2.>")).size());
       assertEquals(1, ad.getDirectBindings(SimpleString.toSimpleString("Topic2.test")).size());
+
+   }
+
+
+   @Test
+   public void testNumberOfBindingsThatMatch() throws Exception {
+
+      final WildcardConfiguration configuration = new WildcardConfiguration();
+      configuration.setAnyWords('>');
+      WildcardAddressManager ad = new WildcardAddressManager(new BindingFactoryFake(), configuration, null, null);
+
+      ad.addBinding(new BindingFake("T.>", "1"));
+      ad.addBinding(new BindingFake("T.>", "2"));
+      ad.addBinding(new BindingFake("T.>", "3"));
+
+      assertEquals(3, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("T.1")).getBindings().size());
+      assertEquals(3, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("T.2")).getBindings().size());
+      assertEquals(3, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("T.3")).getBindings().size());
+
+
+      assertEquals(3, ad.getExistingBindingsForRoutingAddress(SimpleString.toSimpleString("T.>")).getBindings().size());
+
+      ad.addBinding(new BindingFake("T.*", "10"));
+      assertEquals(1, ad.getExistingBindingsForRoutingAddress(SimpleString.toSimpleString("T.*")).getBindings().size());
+
+      // wildcard binding should not be added to existing matching wildcards, still 3
+      assertEquals(3, ad.getExistingBindingsForRoutingAddress(SimpleString.toSimpleString("T.>")).getBindings().size());
+
+      assertEquals(4, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("T.1")).getBindings().size());
+      assertEquals(4, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("T.2")).getBindings().size());
+      assertEquals(4, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("T.3")).getBindings().size());
+
+
+      ad.addBinding(new BindingFake("T.1.>", "11"));
+      assertEquals(1, ad.getExistingBindingsForRoutingAddress(SimpleString.toSimpleString("T.1.>")).getBindings().size());
+
+      assertEquals(5, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("T.1")).getBindings().size());
+      assertEquals(4, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("T.2")).getBindings().size());
+      assertEquals(4, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("T.3")).getBindings().size());
+
+      ad.addBinding(new BindingFake("T.1.2", "12"));
+
+      assertEquals(5, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("T.1.2")).getBindings().size());
+
+      ad.addBinding(new BindingFake("T.1.2.3.4", "13"));
+      assertEquals(5, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("T.1.2.3.4")).getBindings().size());
+
+      ad.addBinding(new BindingFake("T.>.4", "14"));
+
+      assertEquals(6, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("T.1.2.3.4")).getBindings().size());
+
+      ad.addBinding(new BindingFake("T.1.A.3.4", "15"));
+
+      assertEquals(6, ad.getBindingsForRoutingAddress(SimpleString.toSimpleString("T.1.A.3.4")).getBindings().size());
 
    }
 
@@ -267,10 +293,10 @@ public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
 
                SimpleString pubAddr = SimpleString.toSimpleString("Topic1." + id );
                // publish to new address, will create
-               Bindings binding = ad.getBindingsForRoutingAddress(pubAddr);
+               ad.getBindingsForRoutingAddress(pubAddr);
 
                // publish again, read only
-               binding = ad.getBindingsForRoutingAddress(pubAddr);
+               ad.getBindingsForRoutingAddress(pubAddr);
 
             } catch (Exception e) {
                e.printStackTrace();
@@ -284,15 +310,15 @@ public class WildcardAddressManagerUnitTest extends ActiveMQTestBase {
       assertNull("no exceptions", oops.get());
    }
 
-   class BindingFactoryFake implements BindingsFactory {
+   static class BindingFactoryFake implements BindingsFactory {
 
       @Override
-      public Bindings createBindings(SimpleString address) throws Exception {
+      public Bindings createBindings(SimpleString address) {
          return new BindingsFake();
       }
    }
 
-   class BindingFake implements Binding {
+   static class BindingFake implements Binding {
 
       final SimpleString address;
       final SimpleString id;

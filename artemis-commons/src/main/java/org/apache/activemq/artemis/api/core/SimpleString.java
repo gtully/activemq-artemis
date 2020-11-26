@@ -47,6 +47,8 @@ public final class SimpleString implements CharSequence, Serializable, Comparabl
    // Cache the string
    private transient String str;
 
+   private transient String[] paths;
+
    // Static
    // ----------------------------------------------------------------------
 
@@ -279,6 +281,27 @@ public final class SimpleString implements CharSequence, Serializable, Comparabl
       }
 
       return str;
+   }
+
+   public String[] getPaths(final char separator) {
+      if (paths != null) {
+         return paths;
+      }
+      List<String> l = new ArrayList<>();
+      StringBuilder level = new StringBuilder();
+      for (char c : toString().toCharArray()) { // revisit  do on data[]
+         if (c == separator) {
+            l.add(level.toString());
+            level.delete(0, level.length());
+         } else {
+            level.append(c);
+         }
+      }
+      l.add(level.toString());
+
+      paths = new String[l.size()];
+      l.toArray(paths);
+      return paths;
    }
 
    @Override
