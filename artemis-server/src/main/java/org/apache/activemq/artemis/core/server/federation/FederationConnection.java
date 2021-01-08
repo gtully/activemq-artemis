@@ -51,6 +51,7 @@ public class FederationConnection {
             serverLocator = ActiveMQClient.createServerLocatorWithHA(discoveryGroupConfiguration);
          } else {
             serverLocator = ActiveMQClient.createServerLocatorWithoutHA(discoveryGroupConfiguration);
+            serverLocator.setUseTopologyForLoadBalancing(false);
          }
 
       } else {
