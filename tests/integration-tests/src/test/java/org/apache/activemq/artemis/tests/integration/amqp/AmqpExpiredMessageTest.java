@@ -163,7 +163,7 @@ public class AmqpExpiredMessageTest extends AmqpClientTestSupport {
 
       AddressSettings expiryQueueSettings = new AddressSettings(defaultSettings);
       expiryQueueSettings.setExpiryAddress(SimpleString.toSimpleString(""));
-      expiryQueueSettings.setExpiryDelay(1000l);
+      expiryQueueSettings.setExpiryDelay(1000L);
       server.getAddressSettingsRepository().addMatch(expiryQueue, expiryQueueSettings);
 
 
@@ -190,13 +190,13 @@ public class AmqpExpiredMessageTest extends AmqpClientTestSupport {
 
       assertTrue(targetPagingStore.getAddressSize() > 0);
 
-      Wait.assertEquals(0l, targetPagingStore::getAddressSize);
+      Wait.assertEquals(0L, targetPagingStore::getAddressSize);
 
       // moves to expiry q
       assertTrue(expiryQueuePagingStore.getAddressSize() > 0);
 
       // expires there and dies
-      Wait.assertEquals(0l, expiryQueuePagingStore::getAddressSize);
+      Wait.assertEquals(0L, expiryQueuePagingStore::getAddressSize);
 
       connection.close();
    }
