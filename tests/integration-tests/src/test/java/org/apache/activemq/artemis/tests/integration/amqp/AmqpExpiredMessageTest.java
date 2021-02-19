@@ -27,9 +27,14 @@ import java.util.HashMap;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.activemq.artemis.api.core.QueueConfiguration;
+import org.apache.activemq.artemis.api.core.RoutingType;
 import org.apache.activemq.artemis.api.core.SimpleString;
+import org.apache.activemq.artemis.core.paging.PagingStore;
+import org.apache.activemq.artemis.core.server.ActiveMQServer;
 import org.apache.activemq.artemis.core.server.MessageReference;
 import org.apache.activemq.artemis.core.server.Queue;
+import org.apache.activemq.artemis.core.server.impl.AddressInfo;
 import org.apache.activemq.artemis.core.settings.impl.AddressFullMessagePolicy;
 import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
 import org.apache.activemq.artemis.tests.util.CFUtil;
@@ -45,6 +50,11 @@ import org.junit.Assert;
 import org.junit.Test;
 
 public class AmqpExpiredMessageTest extends AmqpClientTestSupport {
+
+   protected void createAddressAndQueues(ActiveMQServer server) throws Exception {
+      server.getManagementService().enableNotifications(false);
+      super.createAddressAndQueues(server);
+   }
 
    @Test(timeout = 60000)
    public void testSendMessageThatIsAlreadyExpiredUsingAbsoluteTime() throws Exception {
@@ -130,6 +140,63 @@ public class AmqpExpiredMessageTest extends AmqpClientTestSupport {
       assertEquals(0, received.getTimeToLive());
       assertNotNull(received);
       assertEquals("Value1", received.getApplicationProperty("key1"));
+
+      connection.close();
+   }
+
+   @Test(timeout = 60000)
+   public void testExpiryThroughTTLToQueueToExpiry() throws Exception {
+
+      String expiryQueue = "specialExpiryQueue";
+      String targetQueue = "targetOfMessageToExpire";
+
+      server.addAddressInfo(new AddressInfo(SimpleString.toSimpleString(expiryQueue), RoutingType.ANYCAST));
+      server.createQueue(new QueueConfiguration(expiryQueue).setRoutingType(RoutingType.ANYCAST));
+      server.addAddressInfo(new AddressInfo(SimpleString.toSimpleString(targetQueue), RoutingType.ANYCAST));
+      server.createQueue(new QueueConfiguration(targetQueue).setRoutingType(RoutingType.ANYCAST));
+
+
+      AddressSettings defaultSettings =  server.getConfiguration().getAddressesSettings().get("#");
+      AddressSettings specifyExpiryQueue = new AddressSettings(defaultSettings);
+      specifyExpiryQueue.setExpiryAddress(SimpleString.toSimpleString(expiryQueue));
+      server.getAddressSettingsRepository().addMatch(targetQueue, specifyExpiryQueue);
+
+      AddressSettings expiryQueueSettings = new AddressSettings(defaultSettings);
+      expiryQueueSettings.setExpiryAddress(SimpleString.toSimpleString(""));
+      expiryQueueSettings.setExpiryDelay(1000l);
+      server.getAddressSettingsRepository().addMatch(expiryQueue, expiryQueueSettings);
+
+
+      AmqpClient client = createAmqpClient();
+      AmqpConnection connection = addConnection(client.connect());
+      AmqpSession session = connection.createSession();
+
+      AmqpSender sender = session.createSender(targetQueue);
+
+      AmqpMessage message = new AmqpMessage();
+      message.setTimeToLive(1000);
+      message.setDurable(true);
+      message.setApplicationProperty("key1", "Value1");
+      sender.send(message);
+      sender.close();
+
+      Thread.sleep(100);
+
+      PagingStore targetPagingStore = server.getPagingManager().getPageStore(SimpleString.toSimpleString(targetQueue));
+      assertNotNull(targetPagingStore);
+
+      PagingStore expiryQueuePagingStore = server.getPagingManager().getPageStore(SimpleString.toSimpleString(expiryQueue));
+      assertNotNull(expiryQueuePagingStore);
+
+      assertTrue(targetPagingStore.getAddressSize() > 0);
+
+      Wait.assertEquals(0l, targetPagingStore::getAddressSize);
+
+      // moves to expiry q
+      assertTrue(expiryQueuePagingStore.getAddressSize() > 0);
+
+      // expires there and dies
+      Wait.assertEquals(0l, expiryQueuePagingStore::getAddressSize);
 
       connection.close();
    }
