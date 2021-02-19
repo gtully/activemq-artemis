@@ -51,6 +51,7 @@ import org.junit.Test;
 
 public class AmqpExpiredMessageTest extends AmqpClientTestSupport {
 
+   @Override
    protected void createAddressAndQueues(ActiveMQServer server) throws Exception {
       server.getManagementService().enableNotifications(false);
       super.createAddressAndQueues(server);
