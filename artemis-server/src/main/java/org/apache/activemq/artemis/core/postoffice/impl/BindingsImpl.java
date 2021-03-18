@@ -487,6 +487,7 @@ public final class BindingsImpl implements Bindings {
          routingNamePositions.put(routingName, pos);
       }
 
+      /*
       if (messageLoadBalancingType.equals(MessageLoadBalancingType.OFF) && theBinding instanceof RemoteQueueBinding) {
          if (exclusivelyRemote(bindings)) {
             theBinding = null;
@@ -494,7 +495,7 @@ public final class BindingsImpl implements Bindings {
             theBinding = getNextBinding(message, routingName, bindings);
          }
       }
-
+      */
       return theBinding;
    }
 
