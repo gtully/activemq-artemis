@@ -49,8 +49,8 @@ import org.apache.activemq.artemis.core.server.cluster.ClusterConnection;
 import org.apache.activemq.artemis.core.server.cluster.ClusterManager;
 import org.apache.activemq.artemis.reader.MessageUtil;
 import org.apache.activemq.artemis.selector.impl.LRUCache;
+import org.apache.activemq.artemis.spi.core.protocol.AbstractProtocolManager;
 import org.apache.activemq.artemis.spi.core.protocol.ConnectionEntry;
-import org.apache.activemq.artemis.spi.core.protocol.ProtocolManager;
 import org.apache.activemq.artemis.spi.core.protocol.ProtocolManagerFactory;
 import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection;
 import org.apache.activemq.artemis.spi.core.remoting.Acceptor;
@@ -82,7 +82,7 @@ import org.apache.activemq.util.LongSequenceGenerator;
 
 import static org.apache.activemq.artemis.core.protocol.openwire.util.OpenWireUtil.SELECTOR_AWARE_OPTION;
 
-public class OpenWireProtocolManager implements ProtocolManager<Interceptor>, ClusterTopologyListener {
+public class OpenWireProtocolManager  extends AbstractProtocolManager<Command, OpenWireInterceptor, OpenWireConnection> implements ClusterTopologyListener {
 
    private static final List<String> websocketRegistryNames = Collections.EMPTY_LIST;
 
@@ -135,6 +135,10 @@ public class OpenWireProtocolManager implements ProtocolManager<Interceptor>, Cl
 
    private final Map<SimpleString, RoutingType> prefixes = new HashMap<>();
 
+   private final List<OpenWireInterceptor> incomingInterceptors = new ArrayList<>();
+   private final List<OpenWireInterceptor> outgoingInterceptors = new ArrayList<>();
+
+
    protected class VirtualTopicConfig {
       public int filterPathTerminus;
       public boolean selectorAware;
@@ -160,7 +164,9 @@ public class OpenWireProtocolManager implements ProtocolManager<Interceptor>, Cl
    private final Map<DestinationFilter, VirtualTopicConfig> vtConsumerDestinationMatchers = new HashMap<>();
    protected final LRUCache<ActiveMQDestination, ActiveMQDestination> vtDestMapCache = new LRUCache();
 
-   public OpenWireProtocolManager(OpenWireProtocolManagerFactory factory, ActiveMQServer server) {
+   public OpenWireProtocolManager(OpenWireProtocolManagerFactory factory, ActiveMQServer server,
+                                  List<BaseInterceptor> incomingInterceptors,
+                                  List<BaseInterceptor> outgoingInterceptors) {
       this.factory = factory;
       this.server = server;
       this.wireFactory = new OpenWireFormatFactory();
@@ -169,6 +175,8 @@ public class OpenWireProtocolManager implements ProtocolManager<Interceptor>, Cl
       advisoryProducerId.setConnectionId(ID_GENERATOR.generateId());
       scheduledPool = server.getScheduledPool();
       this.wireFormat = (OpenWireFormat) wireFactory.createWireFormat();
+
+      updateInterceptors(incomingInterceptors, outgoingInterceptors);
 
       final ClusterManager clusterManager = this.server.getClusterManager();
 
@@ -245,14 +253,25 @@ public class OpenWireProtocolManager implements ProtocolManager<Interceptor>, Cl
    }
 
    @Override
-   public ProtocolManagerFactory<Interceptor> getFactory() {
+   public ProtocolManagerFactory getFactory() {
       return factory;
    }
 
    @Override
-   public void updateInterceptors(List<BaseInterceptor> incomingInterceptors,
-                                  List<BaseInterceptor> outgoingInterceptors) {
-      // NO-OP
+   public void updateInterceptors(List incoming, List outgoing) {
+      this.incomingInterceptors.clear();
+      this.incomingInterceptors.addAll(getFactory().filterInterceptors(incoming));
+
+      this.outgoingInterceptors.clear();
+      this.outgoingInterceptors.addAll(getFactory().filterInterceptors(outgoing));
+   }
+
+   public String invokeIncoming(Command command, OpenWireConnection connection) {
+      return super.invokeInterceptors(this.incomingInterceptors, command, connection);
+   }
+
+   public String invokeOutgoing(Command command, OpenWireConnection connection) {
+      return super.invokeInterceptors(this.outgoingInterceptors, command, connection);
    }
 
    @Override

@@ -311,6 +311,12 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
             AuditLogger.setRemoteAddress(getRemoteAddress());
          }
 
+         if (this.protocolManager.invokeIncoming(command, this) != null) {
+            logger.debugf("Interceptor rejected OpenWire command: %s", command);
+            disconnect(true);
+            return;
+         }
+
          boolean responseRequired = command.isResponseRequired();
          int commandId = command.getCommandId();
 
@@ -496,6 +502,9 @@ public class OpenWireConnection extends AbstractRemotingConnection implements Se
    }
 
    public void physicalSend(Command command) throws IOException {
+      if (this.protocolManager.invokeOutgoing(command, this) != null) {
+         return;
+      }
 
       if (logger.isTraceEnabled()) {
          tracePhysicalSend(transportConnection, command);

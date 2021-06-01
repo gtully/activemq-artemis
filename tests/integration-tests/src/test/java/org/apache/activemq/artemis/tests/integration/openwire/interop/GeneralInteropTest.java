@@ -33,14 +33,16 @@ import java.nio.charset.StandardCharsets;
 import org.apache.activemq.ActiveMQConnectionFactory;
 import org.apache.activemq.ActiveMQMessageConsumer;
 import org.apache.activemq.ActiveMQMessageProducer;
-import org.apache.activemq.artemis.api.core.ActiveMQDisconnectedException;
+import org.apache.activemq.artemis.api.core.ActiveMQException;
 import org.apache.activemq.artemis.api.core.client.ServerLocator;
 import org.apache.activemq.artemis.api.core.management.QueueControl;
 import org.apache.activemq.artemis.api.core.management.ResourceNames;
-import org.apache.activemq.artemis.core.server.ServerSession;
+import org.apache.activemq.artemis.core.protocol.openwire.OpenWireInterceptor;
+import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection;
 import org.apache.activemq.artemis.tests.integration.openwire.BasicOpenWireTest;
 import org.apache.activemq.artemis.utils.Wait;
 import org.apache.activemq.command.ActiveMQDestination;
+import org.apache.activemq.command.Command;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -227,23 +229,36 @@ public class GeneralInteropTest extends BasicOpenWireTest {
          Wait.assertEquals(1L, () -> queueControl.getMessagesAcknowledged(), 3000, 100);
          Wait.assertEquals(prefetchSize, () -> queueControl.getDeliveringCount(), 3000, 100);
 
-         //Force a disconnection.
-         for (ServerSession serverSession : server.getSessions()) {
-            if (session.toString().contains(serverSession.getName())) {
-               serverSession.getRemotingConnection().fail(new ActiveMQDisconnectedException());
-            }
-         }
+         message = consumer.receive(5000);
+         assertNotNull(message);
+         assertTrue(message instanceof TextMessage);
+         assertEquals(text + 1, ((TextMessage)message).getText());
 
-         Wait.assertEquals(1L, () -> queueControl.getMessagesAcknowledged(), 3000, 100);
+         server.getRemotingService().addIncomingInterceptor(new OpenWireInterceptor() {
+            @Override
+            public boolean intercept(Command packet, RemotingConnection connection) throws ActiveMQException {
+               if (packet.isMessageAck()) {
+                  server.getRemotingService().removeIncomingInterceptor(this);
+                  return false;
+               }
+               return true;
+            }
+         });
+
+         message.acknowledge();
+
+         Wait.assertEquals(2L, () -> queueControl.getMessagesAcknowledged(), 3000, 100);
          Wait.assertEquals(prefetchSize, () -> queueControl.getDeliveringCount(), 3000, 100);
 
          message = consumer.receive(5000);
          assertNotNull(message);
          assertTrue(message instanceof TextMessage);
-         assertEquals(text + 1, ((TextMessage)message).getText());
+         assertEquals(text + 2, ((TextMessage)message).getText());
          message.acknowledge();
 
-         Wait.assertEquals(2L, () -> queueControl.getMessagesAcknowledged(), 3000, 100);
+         System.err.println("id: " + message.getJMSMessageID());
+
+         Wait.assertEquals(3L, () -> queueControl.getMessagesAcknowledged(), 3000, 100);
          Wait.assertEquals(prefetchSize, () -> queueControl.getDeliveringCount(), 30000, 100);
       } finally {
          connection.close();
