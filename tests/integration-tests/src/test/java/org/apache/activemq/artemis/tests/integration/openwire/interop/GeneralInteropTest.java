@@ -27,9 +27,13 @@ import javax.jms.Queue;
 import javax.jms.Session;
 import javax.jms.StreamMessage;
 import javax.jms.TextMessage;
+import java.io.IOException;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
+import org.apache.activemq.ActiveMQConnection;
 import org.apache.activemq.ActiveMQConnectionFactory;
 import org.apache.activemq.ActiveMQMessageConsumer;
 import org.apache.activemq.ActiveMQMessageProducer;
@@ -38,9 +42,12 @@ import org.apache.activemq.artemis.api.core.client.ServerLocator;
 import org.apache.activemq.artemis.api.core.management.QueueControl;
 import org.apache.activemq.artemis.api.core.management.ResourceNames;
 import org.apache.activemq.artemis.core.server.ServerSession;
+import org.apache.activemq.artemis.core.server.plugin.ActiveMQServerConsumerPlugin;
 import org.apache.activemq.artemis.tests.integration.openwire.BasicOpenWireTest;
 import org.apache.activemq.artemis.utils.Wait;
 import org.apache.activemq.command.ActiveMQDestination;
+import org.apache.activemq.transport.TransportListener;
+import org.apache.activemq.transport.failover.FailoverTransport;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -193,7 +200,7 @@ public class GeneralInteropTest extends BasicOpenWireTest {
    }
 
    @Test
-   public void testFailoverReceivingFromCore() throws Exception {
+   public void testFailoverReceivingFromCoreWithAckAfterInterrupt() throws Exception {
       final int prefetchSize = 10;
       final String text = "HelloWorld";
 
@@ -227,12 +234,42 @@ public class GeneralInteropTest extends BasicOpenWireTest {
          Wait.assertEquals(1L, () -> queueControl.getMessagesAcknowledged(), 3000, 100);
          Wait.assertEquals(prefetchSize, () -> queueControl.getDeliveringCount(), 3000, 100);
 
-         //Force a disconnection.
+         message = consumer.receive(5000);
+         assertNotNull(message);
+         assertTrue(message instanceof TextMessage);
+         assertEquals(text + 1, ((TextMessage)message).getText());
+
+         CountDownLatch interrupted = new CountDownLatch(1);
+         ((ActiveMQConnection)connection).addTransportListener(new TransportListener() {
+            @Override
+            public void onCommand(Object command) {
+            }
+
+            @Override
+            public void onException(IOException error) {
+            }
+
+            @Override
+            public void transportInterupted() {
+               interrupted.countDown();
+            }
+
+            @Override
+            public void transportResumed() {
+            }
+         });
+
+         //Force a disconnection that will result in duplicate ack
          for (ServerSession serverSession : server.getSessions()) {
             if (session.toString().contains(serverSession.getName())) {
                serverSession.getRemotingConnection().fail(new ActiveMQDisconnectedException());
             }
          }
+
+         assertTrue(interrupted.await(10, TimeUnit.SECONDS));
+
+         // ack will be dropped
+         message.acknowledge();
 
          Wait.assertEquals(1L, () -> queueControl.getMessagesAcknowledged(), 3000, 100);
          Wait.assertEquals(prefetchSize, () -> queueControl.getDeliveringCount(), 3000, 100);
