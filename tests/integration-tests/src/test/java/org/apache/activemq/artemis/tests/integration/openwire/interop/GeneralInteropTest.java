@@ -38,16 +38,20 @@ import org.apache.activemq.ActiveMQConnectionFactory;
 import org.apache.activemq.ActiveMQMessageConsumer;
 import org.apache.activemq.ActiveMQMessageProducer;
 import org.apache.activemq.artemis.api.core.ActiveMQDisconnectedException;
-import org.apache.activemq.artemis.api.core.client.ServerLocator;
+import org.apache.activemq.artemis.api.core.ActiveMQException;
+import org.apache.activemq.artemis.api.core.QueueConfiguration;
+import org.apache.activemq.artemis.api.core.SimpleString;
 import org.apache.activemq.artemis.api.core.management.QueueControl;
 import org.apache.activemq.artemis.api.core.management.ResourceNames;
+import org.apache.activemq.artemis.core.protocol.openwire.OpenWireInterceptor;
 import org.apache.activemq.artemis.core.server.ServerSession;
-import org.apache.activemq.artemis.core.server.plugin.ActiveMQServerConsumerPlugin;
+import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
+import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection;
 import org.apache.activemq.artemis.tests.integration.openwire.BasicOpenWireTest;
 import org.apache.activemq.artemis.utils.Wait;
 import org.apache.activemq.command.ActiveMQDestination;
+import org.apache.activemq.command.Command;
 import org.apache.activemq.transport.TransportListener;
-import org.apache.activemq.transport.failover.FailoverTransport;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -58,13 +62,10 @@ import org.junit.Test;
  */
 public class GeneralInteropTest extends BasicOpenWireTest {
 
-   private ServerLocator locator;
-
    @Before
    @Override
    public void setUp() throws Exception {
       super.setUp();
-      locator = this.createInVMNonHALocator();
    }
 
    @Test
@@ -196,6 +197,103 @@ public class GeneralInteropTest extends BasicOpenWireTest {
          assertEquals(text + i, textMessage.getText());
 
          assertEquals(destination, textMessage.getJMSDestination());
+      }
+   }
+
+   @Test
+   public void testFailoverReceivingFromCore() throws Exception {
+
+      /**
+       * to get logging to stdout from failover client
+       *  org.slf4j.impl.SimpleLoggerFactory simpleLoggerFactory = new SimpleLoggerFactory();
+       * ((SimpleLogger)simpleLoggerFactory.getLogger(FailoverTransport.class.getName())).setLevel(SimpleLogger.TRACE);
+       */
+
+      final String text = "HelloWorld";
+      final int prefetchSize = 10;
+
+      SimpleString dla = new SimpleString("DLA");
+      SimpleString dlq = new SimpleString("DLQ1");
+      server.createQueue(new QueueConfiguration(dlq).setAddress(dla).setDurable(false));
+      server.getAddressSettingsRepository().addMatch(queueName, new AddressSettings().setDeadLetterAddress(dla));
+
+      sendMultipleTextMessagesUsingCoreJms(queueName, text, 100);
+
+      String urlString = "failover:(tcp://" + OWHOST + ":" + OWPORT
+         + ")?randomize=false&timeout=400&reconnectDelay=500" +
+         "&useExponentialBackOff=false&initialReconnectDelay=500&nested.wireFormat.maxInactivityDuration=500" +
+         "&nested.wireFormat.maxInactivityDurationInitalDelay=500" +
+         "&nested.soTimeout=500&nested.connectionTimeout=400&jms.connectResponseTimeout=400&jms.sendTimeout=400&jms.closeTimeout=400";
+
+      ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory(urlString);
+      connectionFactory.setSendAcksAsync(false);
+      connectionFactory.setOptimizeAcknowledge(false);
+      connectionFactory.getPrefetchPolicy().setAll(prefetchSize);
+
+      Connection connection = connectionFactory.createConnection();
+      try {
+         connection.setClientID("test.consumer.queue." + queueName);
+         connection.start();
+
+         Message message = null;
+         Session session = connection.createSession(false, Session.CLIENT_ACKNOWLEDGE);
+         Queue queue = session.createQueue(queueName);
+         QueueControl queueControl = (QueueControl)server.getManagementService().
+            getResource(ResourceNames.QUEUE + queueName);
+
+         QueueControl dlqControl = (QueueControl)server.getManagementService().
+            getResource(ResourceNames.QUEUE + dlq.toString());
+
+         MessageConsumer consumer = session.createConsumer(queue);
+
+         message = consumer.receive(5000);
+         assertNotNull(message);
+         assertTrue(message instanceof TextMessage);
+         assertEquals(text + 0, ((TextMessage)message).getText());
+         message.acknowledge();
+
+         Wait.assertEquals(1L, () -> queueControl.getMessagesAcknowledged(), 3000, 100);
+         Wait.assertEquals(prefetchSize, () -> queueControl.getDeliveringCount(), 3000, 100);
+
+         message = consumer.receive(5000);
+         assertNotNull(message);
+         assertTrue(message instanceof TextMessage);
+         assertEquals(text + 1, ((TextMessage)message).getText());
+
+         // client won't get a reply to the ack command, just a disconnect and will replay the ack on reconnect
+         server.getRemotingService().addIncomingInterceptor(new OpenWireInterceptor() {
+            @Override
+            public boolean intercept(Command packet, RemotingConnection connection) throws ActiveMQException {
+               if (packet.isMessageAck()) {
+                  server.getRemotingService().removeIncomingInterceptor(this);
+                  return false;
+               }
+               return true;
+            }
+         });
+
+         message.acknowledge();
+
+         // after a response to the replay....
+         // the message should be redelivered and pending for the replayed ack... hence it gets acked ok.
+         // the real delivery gets suppressed as a duplicate by the message audit and poison acked
+         // but there is a race between client failover reconnect and server dispatch to a new consumer
+         // if redispatch has not happened, the replayed ack is dropped and the posion ack will match and try and dlq
+         Wait.waitFor(() -> dlqControl.getMessageCount() == 1 && queueControl.getMessagesAcknowledged() == 1
+            || dlqControl.getMessageCount() == 0 && queueControl.getMessagesAcknowledged() == 2, 3000, 100);
+         Wait.assertEquals(prefetchSize, () -> queueControl.getDeliveringCount(), 3000, 100);
+
+         message = consumer.receive(5000);
+         assertNotNull(message);
+         assertTrue(message instanceof TextMessage);
+         assertEquals(text + 2, ((TextMessage)message).getText());
+         message.acknowledge();
+
+         Wait.waitFor(() -> dlqControl.getMessageCount() == 1 && queueControl.getMessagesAcknowledged() == 2
+            || dlqControl.getMessageCount() == 0 && queueControl.getMessagesAcknowledged() == 3, 3000, 100);
+         Wait.assertEquals(prefetchSize, () -> queueControl.getDeliveringCount(), 30000, 100);
+      } finally {
+         connection.close();
       }
    }
 

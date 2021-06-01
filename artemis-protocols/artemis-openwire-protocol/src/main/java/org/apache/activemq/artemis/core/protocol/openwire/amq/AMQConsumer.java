@@ -287,33 +287,30 @@ public class AMQConsumer {
     */
    public void acknowledge(MessageAck ack) throws Exception {
 
-      System.err.println("" + ack);
       if (ack.isRedeliveredAck()) {
          // we don't mind if the client thinks it is a redelivery
+         return;
+      }
+
+      final int ackMessageCount = ack.getMessageCount();
+      if (ack.isDeliveredAck()) {
+         acquireCredit(ackMessageCount);
+         deliveredAcksCreditExtension += ackMessageCount;
+         // our work is done
          return;
       }
 
       final MessageId lastID = ack.getLastMessageId();
       final MessageId startID = ack.getFirstMessageId() == null ? lastID : ack.getFirstMessageId();
 
-      boolean removeReferences = !serverConsumer.isBrowseOnly(); // if it's browse only, nothing to be acked, we just remove the lists
-      if (serverConsumer.getQueue().isNonDestructive()) {
-         removeReferences = false;
-      }
-
+      // if it's browse only, nothing to be acked
+      final boolean removeReferences = !serverConsumer.isBrowseOnly() && !serverConsumer.getQueue().isNonDestructive();
       final List<MessageReference> ackList = serverConsumer.scanDeliveringReferences(removeReferences, reference -> startID.equals(reference.getProtocolData()), reference -> lastID.equals(reference.getProtocolData()));
 
-      if (!ackList.isEmpty()) {
+      if (!ackList.isEmpty() || !removeReferences || serverConsumer.getQueue().isTemporary()) {
 
-         // valid match in delivered - deal with credit
-         final int ackMessageCount = ack.getMessageCount();
+         // valid match in delivered or browsing or temp - deal with credit
          acquireCredit(ackMessageCount);
-
-         if (ack.isDeliveredAck()) {
-            deliveredAcksCreditExtension += ackMessageCount;
-            // our work is done
-            return;
-         }
 
          // some sort of real ack, rebalance deliveredAcksCreditExtension
          if (deliveredAcksCreditExtension > 0) {
@@ -322,7 +319,6 @@ public class AMQConsumer {
                currentWindow.addAndGet(-ackMessageCount);
             }
          }
-
 
          if (ack.isExpiredAck()) {
             for (MessageReference ref : ackList) {
