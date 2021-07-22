@@ -151,9 +151,8 @@ public final class ReplicationBackupActivation extends Activation implements Dis
          distributedManager.start();
          LOGGER.debug("Quorum service available");
 
-         if (isFirstFailbackAttempt()) {
-            // if we are replicating such that we can request failback, we can ignore our data
-            // on a hard restart we would be back to primary role
+         if (policy.isTryFailback()) {
+            // we are replicating to overwrite our data, transient backup state while trying to be the primary
          } else {
             // we may be a valid insync_replica (backup) if our activation sequence is largest for a nodeId
             // verify that before removing data..
