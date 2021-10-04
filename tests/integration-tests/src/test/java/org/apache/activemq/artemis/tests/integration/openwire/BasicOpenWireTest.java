@@ -70,6 +70,12 @@ public class BasicOpenWireTest extends OpenWireTestBase {
       this.server.createQueue(new QueueConfiguration(coreQueue).setRoutingType(RoutingType.ANYCAST));
       testQueues.put(queueName, coreQueue);
 
+      for (int i=0; i<30; i++) {
+         coreQueue = new SimpleString(queueName + i);
+         this.server.createQueue(new QueueConfiguration(coreQueue).setRoutingType(RoutingType.ANYCAST));
+         testQueues.put(queueName, coreQueue);
+      }
+
       SimpleString coreQueue2 = new SimpleString(queueName2);
       this.server.createQueue(new QueueConfiguration(coreQueue2).setRoutingType(RoutingType.ANYCAST));
       testQueues.put(queueName2, coreQueue2);

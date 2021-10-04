@@ -54,6 +54,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -63,12 +65,14 @@ import org.apache.activemq.ActiveMQSession;
 import org.apache.activemq.artemis.api.core.QueueConfiguration;
 import org.apache.activemq.artemis.api.core.SimpleString;
 import org.apache.activemq.artemis.api.jms.ActiveMQJMSClient;
+import org.apache.activemq.artemis.core.config.Configuration;
 import org.apache.activemq.artemis.core.postoffice.PostOffice;
 import org.apache.activemq.artemis.core.postoffice.impl.LocalQueueBinding;
 import org.apache.activemq.artemis.api.core.RoutingType;
 import org.apache.activemq.artemis.core.protocol.openwire.OpenWireConnection;
 import org.apache.activemq.artemis.core.protocol.openwire.OpenWireProtocolManager;
 import org.apache.activemq.artemis.core.remoting.impl.netty.NettyAcceptor;
+import org.apache.activemq.artemis.core.server.JournalType;
 import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
 import org.apache.activemq.artemis.core.transaction.Transaction;
 import org.apache.activemq.artemis.core.transaction.impl.XidImpl;
@@ -102,6 +106,24 @@ public class SimpleOpenWireTest extends BasicOpenWireTest {
       super.setUp();
    }
 
+   @Override
+   protected String getConnectionUrl() {
+      return "failover:" + urlString;
+   }
+
+   @Override
+   protected void extraServerConfig(Configuration serverConfig) {
+      super.extraServerConfig(serverConfig);
+ //    serverConfig.setGlobalMaxSize(10*1000);  // force paging
+      serverConfig.setIDCacheSize(500);
+      serverConfig.setPersistIDCache(true);
+      serverConfig.setJournalFileSize(10*1024);
+      serverConfig.setJournalCompactMinFiles(1);
+      serverConfig.setJournalCompactPercentage(100);
+      serverConfig.setJournalType(JournalType.MAPPED);
+//      serverConfig.setJournalBufferTimeout_NIO((int) (1000000000d / 1000));  // 1000 a second
+   }
+
    @Test
    public void testSimple() throws Exception {
       Connection connection = factory.createConnection();
@@ -114,6 +136,51 @@ public class SimpleOpenWireTest extends BasicOpenWireTest {
       }
 
       connection.close();
+   }
+
+   @Test
+   public void testTransactionalVSimple() throws Exception {
+      ExecutorService executorService = Executors.newFixedThreadPool(30);
+
+      String space1k = new String(new char[512]).replace('\0', ' ');
+      for (int i=0; i<20; i++) {
+         final int id = i % 10;
+         executorService.submit(new Runnable() {
+            @Override
+            public void run () {
+               try (Connection connection = factory.createConnection()) {
+
+                  Session session = connection.createSession(true, Session.SESSION_TRANSACTED);
+                  Session consumerSession = connection.createSession(false, Session.CLIENT_ACKNOWLEDGE);
+
+                  Queue queue = session.createQueue(queueName + id);
+                  MessageProducer producer = session.createProducer(queue);
+                  MessageConsumer consumer = consumerSession.createConsumer(queue);
+                  connection.start();
+
+                  for (int j = 0; j < 10000; j++) {
+                     TextMessage textMessage = session.createTextMessage("test");
+                     textMessage.setStringProperty("1k", space1k);
+                     producer.send(textMessage);
+                     session.commit();
+
+                     TextMessage message = (TextMessage) consumer.receive(5000);
+
+                     Assert.assertEquals("test", message.getText());
+
+                     message.acknowledge();
+                  }
+                  System.err.println("Done! ");
+
+               } catch (Throwable t) {
+                  t.printStackTrace();
+               }
+            }
+         });
+      }
+      executorService.shutdown();
+      executorService.awaitTermination(10, TimeUnit.MINUTES);
+
    }
 
    @Test
