@@ -17,20 +17,15 @@
 package org.apache.activemq.artemis.core.server.impl;
 
 import java.util.Collections;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 
-import org.apache.activemq.artemis.api.core.ActiveMQException;
 import org.apache.activemq.artemis.api.core.QueueConfiguration;
 import org.apache.activemq.artemis.api.core.RoutingType;
 import org.apache.activemq.artemis.api.core.SimpleString;
 import org.apache.activemq.artemis.core.filter.Filter;
-import org.apache.activemq.artemis.core.filter.impl.FilterImpl;
 import org.apache.activemq.artemis.core.paging.PagingStore;
 import org.apache.activemq.artemis.core.paging.cursor.PageSubscription;
 import org.apache.activemq.artemis.core.persistence.StorageManager;
@@ -59,11 +54,9 @@ import org.jboss.logging.Logger;
 public class LastValueQueue extends QueueImpl {
 
    private static final Logger logger = Logger.getLogger(LastValueQueue.class);
-   private final Map<SimpleString, MessageReference> map = new ConcurrentHashMap<>();
+   private final Map<SimpleString, MessageReference> map = new HashMap<>();
    private final SimpleString lastValueKey;
 
-   // only use this within synchronized methods or synchronized(this) blocks
-   protected final LinkedList<MessageReference> nextDeliveries = new LinkedList<>();
 
    @Deprecated
    public LastValueQueue(final long persistenceID,
@@ -148,101 +141,35 @@ public class LastValueQueue extends QueueImpl {
 
    @Override
    public synchronized void addTail(final MessageReference ref, final boolean direct) {
-      if (scheduleIfPossible(ref)) {
-         return;
+      if (!scheduleIfPossible(ref)) {
+         trackLastValue(ref);
+         super.addTail(ref, isNonDestructive() ? false : direct);
       }
-      final SimpleString lastValueProperty = ref.getLastValueProperty();
-
-      if (lastValueProperty != null) {
-         MessageReference oldRef = map.get(lastValueProperty);
-
-         if (oldRef != null) {
-            processOldRef(lastValueProperty, ref, oldRef);
-         } else {
-            map.put(lastValueProperty, ref);
-         }
-      }
-
-      super.addTail(ref, isNonDestructive() ? false : direct);
    }
 
+   @Override
+   public void addHead(final MessageReference ref, boolean scheduling) {
+      if (scheduling) {
+         // track last value when scheduled message is actually enqueued
+         trackLastValue(ref);
+      }
+      // for released messages from a consumer, we don't want to replay those as last
+      // value because they could be very stale. They were already tacked on addTail
+      super.addHead(ref, scheduling);
+   }
+
+   private void trackLastValue(MessageReference ref) {
+      final SimpleString lastValueProperty = ref.getLastValueProperty();
+      if (lastValueProperty != null) {
+         map.put(lastValueProperty, ref);
+      }
+   }
 
    @Override
    public long getMessageCount() {
-      if (pageSubscription != null) {
-         // messageReferences will have depaged messages which we need to discount from the counter as they are
-         // counted on the pageSubscription as well
-         return (long) pendingMetrics.getMessageCount() + getScheduledCount() + pageSubscription.getMessageCount();
-      } else {
-         return (long) pendingMetrics.getMessageCount() + getScheduledCount();
-      }
-   }
-
-   /** LVQ has to use regular addHead due to last value queues calculations */
-   @Override
-   public void addSorted(MessageReference ref, boolean scheduling) {
-      this.addHead(ref, scheduling);
-   }
-
-   /** LVQ has to use regular addHead due to last value queues calculations */
-   @Override
-   public void addSorted(List<MessageReference> refs, boolean scheduling) {
-      this.addHead(refs, scheduling);
-   }
-
-   @Override
-   public synchronized void addHead(final MessageReference ref, boolean scheduling) {
-      // we first need to check redelivery-delay, as we can't put anything on headers if redelivery-delay
-      if (!scheduling && scheduledDeliveryHandler.checkAndSchedule(ref, false)) {
-         return;
-      }
-
-      SimpleString lastValueProp = ref.getLastValueProperty();
-      boolean addHead = true;
-
-      if (lastValueProp != null) {
-         MessageReference existingMessageRef = map.get(lastValueProp);
-
-         if (existingMessageRef != null) {
-            if (scheduling) {
-               processOldRef(lastValueProp, ref, existingMessageRef);
-            } else {
-               if (findLastValueMessage(lastValueProp)) {
-                  addHead = false;
-               }
-            }
-         } else {
-            map.put(lastValueProp, ref);
-         }
-      }
-
-      if (addHead) {
-         super.addHead(ref, scheduling);
-      }
-   }
-
-   private boolean findLastValueMessage(SimpleString lastValueProp) {
-      boolean found = false;
-      Filter filter = null;
-      try {
-         filter = FilterImpl.createFilter(String.format("%s = '%s'", getLastValueKey(), lastValueProp));
-      } catch (ActiveMQException e) {
-         e.printStackTrace();
-         return false;
-      }
-      try (LinkedListIterator<MessageReference> iterator = browserIterator()) {
-         try {
-            while (iterator.hasNext()) {
-               if (filter.match(iterator.next().getMessage())) {
-                  found = true;
-                  break;
-               }
-            }
-         } catch (NoSuchElementException ignored) {
-            // this could happen through paging browsing
-         }
-      }
-      return found;
+      // with LV - delivered messages can remain on the queue so the delivering count
+      // count must be discounted else we are accounting the same message more than once
+      return super.getMessageCount() - getDeliveringCount();
    }
 
    @Override
@@ -255,22 +182,37 @@ public class LastValueQueue extends QueueImpl {
       return super.getQueueConfiguration().setLastValue(true).setLastValueKey(lastValueKey);
    }
 
-   private void processOldRef(SimpleString lastValueProperty, MessageReference newRef, MessageReference oldRef) {
-      try {
-         /*
-          * Make sure all messages are pushed from intermediateMessageReferences to messageReferences so that any
-          * existing last-value messages can be found removed.
-          */
-         doInternalPoll();
+   @Override
+   protected void pruneLastValues() {
+      // called with synchronized(this) from super.deliver()
 
-         referenceHandled(oldRef);
-         removeReferenceWithID(oldRef.getMessageID());
-         oldRef.acknowledge(null, AckReason.REPLACED, null);
-      } catch (Exception e) {
-         ActiveMQServerLogger.LOGGER.errorAckingOldReference(e);
+      try (LinkedListIterator<MessageReference> iter = messageReferences.iterator()) {
+         while (iter.hasNext()) {
+            MessageReference ref = iter.next();
+            if (!currentLastValue(ref)) {
+               iter.remove();
+               try {
+                  referenceHandled(ref);
+                  super.refRemoved(ref);
+                  ref.acknowledge(null, AckReason.REPLACED, null);
+               } catch (Exception e) {
+                  ActiveMQServerLogger.LOGGER.errorAckingOldReference(e);
+               }
+            }
+         }
       }
+   }
 
-      map.put(lastValueProperty, newRef);
+   private boolean currentLastValue(final MessageReference ref) {
+      boolean currentLastValue = false;
+      SimpleString lastValueProp = ref.getLastValueProperty();
+      if (lastValueProp != null) {
+         MessageReference current = map.get(lastValueProp);
+         if (current == ref) {
+            currentLastValue = true;
+         }
+      }
+      return currentLastValue;
    }
 
    @Override
@@ -300,17 +242,7 @@ public class LastValueQueue extends QueueImpl {
 
    @Override
    public synchronized void reload(final MessageReference newRef) {
-      SimpleString lastValueProperty = newRef.getLastValueProperty();
-      if (lastValueProperty != null) {
-         MessageReference oldRef = map.get(lastValueProperty);
-
-         if (oldRef != null) {
-            processOldRef(lastValueProperty, newRef, oldRef);
-         }
-
-         map.put(lastValueProperty, newRef);
-      }
-
+      trackLastValue(newRef);
       super.reload(newRef);
    }
 

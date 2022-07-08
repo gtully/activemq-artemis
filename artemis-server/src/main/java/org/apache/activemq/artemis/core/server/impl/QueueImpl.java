@@ -194,7 +194,7 @@ public class QueueImpl extends CriticalComponentImpl implements Queue {
    private final MpscUnboundedArrayQueue<MessageReference> intermediateMessageReferences = new MpscUnboundedArrayQueue<>(8192);
 
    // This is where messages are stored
-   private final PriorityLinkedList<MessageReference> messageReferences = new PriorityLinkedListImpl<>(QueueImpl.NUM_PRIORITIES, MessageReferenceImpl.getIDComparator());
+   protected final PriorityLinkedList<MessageReference> messageReferences = new PriorityLinkedListImpl<>(QueueImpl.NUM_PRIORITIES, MessageReferenceImpl.getIDComparator());
 
    private NodeStore<MessageReference> nodeStore;
 
@@ -3000,6 +3000,7 @@ public class QueueImpl extends CriticalComponentImpl implements Queue {
             if (consumers.hasNext()) {
                holder = consumers.next();
             } else {
+               pruneLastValues();
                break;
             }
 
@@ -3097,6 +3098,8 @@ public class QueueImpl extends CriticalComponentImpl implements Queue {
                // Round robin'd all
 
                if (noDelivery == this.consumers.size()) {
+                  pruneLastValues();
+
                   if (handledconsumer != null) {
                      // this shouldn't really happen,
                      // however I'm keeping this as an assertion case future developers ever change the logic here on this class
@@ -3120,6 +3123,11 @@ public class QueueImpl extends CriticalComponentImpl implements Queue {
       }
 
       return true;
+   }
+
+   // called with 'this' locked
+   protected void pruneLastValues() {
+      // interception point for LVQ
    }
 
    protected void removeMessageReference(ConsumerHolder<? extends Consumer> holder, MessageReference ref) {
