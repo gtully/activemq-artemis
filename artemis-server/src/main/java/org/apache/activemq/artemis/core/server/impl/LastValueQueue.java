@@ -152,16 +152,30 @@ public class LastValueQueue extends QueueImpl {
       if (scheduling) {
          // track last value when scheduled message is actually enqueued
          trackLastValue(ref);
+      } else if (isNonDestructive() == false) {
+         // for released messages from a consumer or tx that have been destroyed,
+         // use as a last value in the absence of any newer value, it may be stale
+         trackLastValueIfAbsent(ref);
       }
-      // for released messages from a consumer, we don't want to replay those as last
-      // value because they could be very stale. They were already tacked on addTail
       super.addHead(ref, scheduling);
+   }
+
+   @Override
+   public void addSorted(final MessageReference ref, boolean scheduling) {
+      addHead(ref, scheduling);
    }
 
    private void trackLastValue(MessageReference ref) {
       final SimpleString lastValueProperty = ref.getLastValueProperty();
       if (lastValueProperty != null) {
          map.put(lastValueProperty, ref);
+      }
+   }
+
+   private void trackLastValueIfAbsent(MessageReference ref) {
+      final SimpleString lastValueProperty = ref.getLastValueProperty();
+      if (lastValueProperty != null) {
+         map.putIfAbsent(lastValueProperty, ref);
       }
    }
 
@@ -185,7 +199,6 @@ public class LastValueQueue extends QueueImpl {
    @Override
    protected void pruneLastValues() {
       // called with synchronized(this) from super.deliver()
-
       try (LinkedListIterator<MessageReference> iter = messageReferences.iterator()) {
          while (iter.hasNext()) {
             MessageReference ref = iter.next();
