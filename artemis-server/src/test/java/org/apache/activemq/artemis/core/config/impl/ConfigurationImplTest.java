@@ -60,10 +60,12 @@ import org.apache.activemq.artemis.core.persistence.StorageManager;
 import org.apache.activemq.artemis.core.security.Role;
 import org.apache.activemq.artemis.core.server.ComponentConfigurationRoutingType;
 import org.apache.activemq.artemis.core.server.JournalType;
+import org.apache.activemq.artemis.core.server.SecuritySettingPlugin;
 import org.apache.activemq.artemis.core.server.cluster.impl.MessageLoadBalancingType;
 import org.apache.activemq.artemis.core.server.plugin.impl.LoggingActiveMQServerPlugin;
 import org.apache.activemq.artemis.core.server.routing.KeyType;
 import org.apache.activemq.artemis.core.server.routing.policies.ConsistentHashModuloPolicy;
+import org.apache.activemq.artemis.core.settings.HierarchicalRepository;
 import org.apache.activemq.artemis.core.settings.impl.AddressFullMessagePolicy;
 import org.apache.activemq.artemis.core.settings.impl.DeletionPolicy;
 import org.apache.activemq.artemis.core.settings.impl.ResourceLimitSettings;
@@ -1413,6 +1415,59 @@ public class ConfigurationImplTest extends ActiveMQTestBase {
       Assert.assertTrue(configuration.getSecurityRoles().get("TEST").stream().findFirst().orElse(null).isConsume());
       Assert.assertTrue(configuration.getSecurityRoles().get("TEST").stream().findFirst().orElse(null).isSend());
       Assert.assertFalse(configuration.getSecurityRoles().get("TEST").stream().findFirst().orElse(null).isCreateAddress());
+   }
+
+   public static class MyPlugInBean implements SecuritySettingPlugin {
+      String a;
+
+      public void setA(String v) {
+         a = v;
+      }
+      public String getA() {
+         return a;
+      }
+
+      public MyPlugInBean() {
+      }
+
+      @Override
+      public SecuritySettingPlugin init(Map<String, String> options) {
+         return this;
+      }
+
+      @Override
+      public SecuritySettingPlugin stop() {
+         return null;
+      }
+
+      @Override
+      public Map<String, Set<Role>> getSecurityRoles() {
+         return null;
+      }
+
+      @Override
+      public void setSecurityRepository(HierarchicalRepository<Set<Role>> securityRepository) {
+      }
+   }
+
+   @Test
+   public void testSecuritySettingsPluginBeanViaProperties() throws Exception {
+      ConfigurationImpl configuration = new ConfigurationImpl();
+
+      Properties insertionOrderedProperties = new ConfigurationImpl.InsertionOrderedProperties();
+
+      // to create the instance
+      insertionOrderedProperties.put("securitySettingPlugin", MyPlugInBean.class.getName());
+
+      // reference via index to modify some attribute
+      insertionOrderedProperties.put("securitySettingPlugins[0].a", "V");
+
+      configuration.parsePrefixedProperties(insertionOrderedProperties, null);
+
+      Assert.assertTrue(configuration.getStatus().contains("\"errors\":[]"));
+
+      Assert.assertEquals(1, configuration.getSecuritySettingPlugins().size());
+      Assert.assertEquals(((MyPlugInBean)configuration.getSecuritySettingPlugins().get(0)).getA(), "V");
    }
 
    @Test

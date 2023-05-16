@@ -107,6 +107,7 @@ import org.apache.activemq.artemis.json.JsonArrayBuilder;
 import org.apache.activemq.artemis.json.JsonObject;
 import org.apache.activemq.artemis.json.JsonObjectBuilder;
 import org.apache.activemq.artemis.utils.ByteUtil;
+import org.apache.activemq.artemis.utils.ClassloadingUtil;
 import org.apache.activemq.artemis.utils.Env;
 import org.apache.activemq.artemis.utils.JsonLoader;
 import org.apache.activemq.artemis.utils.ObjectInputStreamWithClassLoader;
@@ -770,6 +771,14 @@ public class ConfigurationImpl implements Configuration, Serializable {
             return (T) instance;
          }
       }, TransformerConfiguration.class);
+
+      beanUtils.getConvertUtils().register(new Converter() {
+         @Override
+         public <T> T convert(Class<T> type, Object value) {
+            SecuritySettingPlugin instance = (SecuritySettingPlugin) ClassloadingUtil.newInstanceFromClassLoader(this.getClass(), value.toString());
+            return (T) instance;
+         }
+      }, SecuritySettingPlugin.class);
 
       beanUtils.getConvertUtils().register(new Converter() {
          @Override
@@ -2322,6 +2331,11 @@ public class ConfigurationImpl implements Configuration, Serializable {
 
    @Override
    public ConfigurationImpl addSecuritySettingPlugin(final SecuritySettingPlugin plugin) {
+      this.securitySettingPlugins.add(plugin);
+      return this;
+   }
+
+   public ConfigurationImpl setSecuritySettingPlugin(final SecuritySettingPlugin plugin) {
       this.securitySettingPlugins.add(plugin);
       return this;
    }
