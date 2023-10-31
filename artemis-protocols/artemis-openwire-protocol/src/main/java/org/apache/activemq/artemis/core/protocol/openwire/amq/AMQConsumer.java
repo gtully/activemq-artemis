@@ -517,7 +517,6 @@ public class AMQConsumer {
    }
 
    public void addRolledback(MessageReference messageReference) {
-      currentWindow.decrementAndGet();
       getRolledbackMessageRefsOrCreate().add(messageReference);
    }
 

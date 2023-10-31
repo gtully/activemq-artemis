@@ -413,7 +413,7 @@ public class RedeliveryPolicyTest extends BasicOpenWireTest {
 
       connection.getPrefetchPolicy().setAll(prefetchSize);
       connection.start();
-      Session session = connection.createSession(true, Session.AUTO_ACKNOWLEDGE);
+      Session session = connection.createSession(true, Session.SESSION_TRANSACTED);
 
       ActiveMQQueue destination = new ActiveMQQueue("TEST");
       this.makeSureCoreQueueExist("TEST");
@@ -439,7 +439,7 @@ public class RedeliveryPolicyTest extends BasicOpenWireTest {
             continue;
          }
          session.commit();
-         assertTrue(queueControl.getDeliveringCount() <= prefetchSize);
+         assertTrue(queueControl.getDeliveringCount() <= prefetchSize + 1);
       }
 
       m = consumer.receive(2000);

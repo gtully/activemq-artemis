@@ -16,6 +16,7 @@
  */
 package org.apache.activemq.artemis.core.persistence.impl.journal;
 
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,6 +28,7 @@ import org.apache.activemq.artemis.core.io.IOCallback;
 import org.apache.activemq.artemis.tests.util.ActiveMQTestBase;
 import org.apache.activemq.artemis.utils.ActiveMQThreadFactory;
 import org.apache.activemq.artemis.utils.Wait;
+import org.apache.activemq.artemis.utils.actors.OrderedExecutor;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -246,6 +248,106 @@ public class OperationContextUnitTest extends ActiveMQTestBase {
          executor.shutdown();
       }
    }
+
+   @Test
+   public void testSequentialCompletion() throws Exception {
+      ExecutorService executor = Executors.newCachedThreadPool(ActiveMQThreadFactory.defaultThreadFactory(getClass().getName()));
+      try {
+         final OperationContextImpl impl = new OperationContextImpl(new OrderedExecutor(executor));
+         final CountDownLatch latch1 = new CountDownLatch(1);
+         final CountDownLatch slowWorkReadyLatch1 = new CountDownLatch(1);
+         final CountDownLatch slowWorkDoneLatch1 = new CountDownLatch(1);
+
+         final CountDownLatch latch2 = new CountDownLatch(1);
+
+         // will want to run on the current thread so use an executor
+         executor.execute(() -> impl.executeOnCompletion(new IOCallback() {
+
+            @Override
+            public void onError(int errorCode, String errorMessage) {
+            }
+
+            @Override
+            public void done() {
+
+               slowWorkReadyLatch1.countDown();
+               try {
+                  slowWorkDoneLatch1.await();
+               } catch (InterruptedException e) {
+                  e.printStackTrace();
+               }
+               latch1.countDown();
+            }
+         }));
+
+         // wait for first completion to begin work
+         assertTrue(slowWorkReadyLatch1.await(10, TimeUnit.SECONDS));
+
+         impl.executeOnCompletion(new IOCallback() {
+
+            @Override
+            public void onError(int errorCode, String errorMessage) {
+            }
+
+            @Override
+            public void done() {
+               try {
+                  if (latch1.await(0, TimeUnit.MILLISECONDS)) {
+                     latch2.countDown();
+                  }
+               } catch (InterruptedException e) {
+                  e.printStackTrace();
+               }
+            }
+         });
+
+         // release the first completion
+         slowWorkDoneLatch1.countDown();
+         assertTrue(latch2.await(5, TimeUnit.SECONDS));
+
+      } finally {
+         executor.shutdownNow();
+      }
+   }
+
+   @Test
+   public void testSequentialCompletionN() throws Exception {
+      ExecutorService executor = Executors.newCachedThreadPool(ActiveMQThreadFactory.defaultThreadFactory(getClass().getName()));
+      ConcurrentLinkedQueue<Long> completions = new ConcurrentLinkedQueue();
+      final int N = 500;
+      try {
+         final OperationContextImpl impl = new OperationContextImpl(new OrderedExecutor(executor));
+
+         // pending work to queue completions till done
+         impl.storeLineUp();
+
+         for (long l = 0; l < N; l++) {
+            long finalL = l;
+            impl.executeOnCompletion(new IOCallback() {
+               @Override
+               public void onError(int errorCode, String errorMessage) {
+               }
+
+               @Override
+               public void done() {
+                  completions.add(finalL);
+               }
+            });
+         }
+
+         impl.done();
+
+         Wait.assertEquals(N, ()-> completions.size());
+
+         for (long i = 0; i < N; i++) {
+            assertEquals("ordered", i, (long) completions.poll());
+         }
+
+      } finally {
+         executor.shutdownNow();
+      }
+   }
+
 
    @Test
    public void testErrorNotLostOnPageSyncError() throws Exception {

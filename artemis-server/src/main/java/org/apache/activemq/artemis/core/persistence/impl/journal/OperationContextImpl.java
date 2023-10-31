@@ -94,11 +94,19 @@ public class OperationContextImpl implements OperationContext {
    static final AtomicLongFieldUpdater<OperationContextImpl> PAGE_LINEUP_UPDATER = AtomicLongFieldUpdater
       .newUpdater(OperationContextImpl.class, "pageLineUpField");
 
+   static final AtomicLongFieldUpdater<OperationContextImpl> COMPLETED_LINEUP_UPDATER = AtomicLongFieldUpdater
+      .newUpdater(OperationContextImpl.class, "completedLinedUp");
+
+   static final AtomicLongFieldUpdater<OperationContextImpl> COMPLETED_UPDATER = AtomicLongFieldUpdater
+      .newUpdater(OperationContextImpl.class, "completed");
+
 
    volatile int executorsPendingField = 0;
    volatile long storeLineUpField = 0;
    volatile long replicationLineUpField = 0;
    volatile long pageLineUpField = 0;
+   volatile long completedLinedUp = 0;
+   volatile long completed = 0; // keep tasks sequential on `completion` rather than start
 
    long stored = 0;
    long replicated = 0;
@@ -163,13 +171,18 @@ public class OperationContextImpl implements OperationContext {
       checkTasks();
    }
 
+   private synchronized void callbackDone() {
+      COMPLETED_UPDATER.incrementAndGet(this);
+      checkTasks();
+   }
+
    @Override
    public void executeOnCompletion(IOCallback runnable) {
       executeOnCompletion(runnable, false);
    }
 
    @Override
-   public void executeOnCompletion(final IOCallback completion, final boolean storeOnly) {
+   public void executeOnCompletion(final IOCallback ioCallback, final boolean storeOnly) {
       boolean executeNow = false;
 
       synchronized (this) {
@@ -177,6 +190,8 @@ public class OperationContextImpl implements OperationContext {
             final long storeLined = STORE_LINEUP_UPDATER.get(this);
             final long pageLined = PAGE_LINEUP_UPDATER.get(this);
             final long replicationLined = REPLICATION_LINEUP_UPDATER.get(this);
+            final long completionLined = COMPLETED_LINEUP_UPDATER.incrementAndGet(this);
+            final long currentCompleted = COMPLETED_UPDATER.get(this);
             if (storeOnly) {
                if (storeOnlyTasks == null) {
                   storeOnlyTasks = new LinkedList<>();
@@ -191,7 +206,7 @@ public class OperationContextImpl implements OperationContext {
             }
             // On this case, we can just execute the context directly
 
-            if (replicationLined == replicated && storeLined == stored && pageLined == paged) {
+            if (replicationLined == replicated && storeLined == stored && pageLined == paged && completionLined == (currentCompleted + 1)) {
                // We want to avoid the executor if everything is complete...
                // However, we can't execute the context if there are executions pending
                // We need to use the executor on this case
@@ -200,7 +215,7 @@ public class OperationContextImpl implements OperationContext {
                   // there are no actions pending.. hence we can just execute the task directly on the same thread
                   executeNow = true;
                } else {
-                  execute(completion);
+                  execute(ioCallback);
                }
             } else {
                if (storeOnly) {
@@ -208,12 +223,12 @@ public class OperationContextImpl implements OperationContext {
                      executeNow = true;
                   } else {
                      assert !storeOnlyTasks.isEmpty() ? storeOnlyTasks.peekLast().storeLined <= storeLined : true;
-                     storeOnlyTasks.add(new StoreOnlyTaskHolder(completion, storeLined));
+                     storeOnlyTasks.add(new StoreOnlyTaskHolder(ioCallback, storeLined));
                   }
                } else {
                   // ensure total ordering
                   assert validateTasksAdd(storeLined, replicationLined, pageLined);
-                  tasks.add(new TaskHolder(completion, storeLined, replicationLined, pageLined));
+                  tasks.add(new TaskHolder(ioCallback, storeLined, replicationLined, pageLined, completionLined - 1));
                }
             }
          }
@@ -221,9 +236,10 @@ public class OperationContextImpl implements OperationContext {
 
       // Executing outside of any locks
       if (errorCode != -1) {
-         completion.onError(errorCode, errorMessage);
+         ioCallback.onError(errorCode, errorMessage);
       } else if (executeNow) {
-         completion.done();
+         ioCallback.done();
+         callbackDone();
       }
 
    }
@@ -284,8 +300,8 @@ public class OperationContextImpl implements OperationContext {
       // no need to use an iterator here, we can save that cost
       for (int i = 0; i < size; i++) {
          final TaskHolder holder = tasks.peek();
-         if (stored < holder.storeLined || replicated < holder.replicationLined || paged < holder.pageLined) {
-            // End of list here. No other task will be completed after this
+         if (stored < holder.storeLined || replicated < holder.replicationLined || paged < holder.pageLined || completed < holder.completionLined) {
+            // fail fast: tasks are ordered, there is no need to continue
             return;
          }
          execute(holder.task);
@@ -315,17 +331,22 @@ public class OperationContextImpl implements OperationContext {
             @Override
             public void run() {
                try {
-                  // If any IO is done inside the callback, it needs to be done on a new context
-                  OperationContextImpl.clearContext();
-                  task.done();
+                  OperationContextImpl.threadLocalContext.set(OperationContextImpl.this);
+                  if (errorCode != -1) {
+                     task.onError(errorCode, errorMessage);
+                  } else {
+                     task.done();
+                  }
                } finally {
                   EXECUTORS_PENDING_UPDATER.decrementAndGet(OperationContextImpl.this);
+                  callbackDone();
                }
             }
          });
       } catch (Throwable e) {
          ActiveMQServerLogger.LOGGER.errorExecutingAIOCallback(e);
          EXECUTORS_PENDING_UPDATER.decrementAndGet(this);
+         COMPLETED_UPDATER.incrementAndGet(OperationContextImpl.this);
          task.onError(ActiveMQExceptionType.INTERNAL_ERROR.getCode(), "It wasn't possible to complete IO operation - " + e.getMessage());
       }
    }
@@ -348,6 +369,7 @@ public class OperationContextImpl implements OperationContext {
          for (int i = 0; i < size; i++) {
             final TaskHolder holder = tasks.poll();
             holder.task.onError(errorCode, errorMessage);
+            COMPLETED_UPDATER.incrementAndGet(this);
          }
       }
    }
@@ -361,6 +383,8 @@ public class OperationContextImpl implements OperationContext {
             replicationLined +
             ", pageLined=" +
             pageLined +
+            ", completionLined=" +
+            completionLined +
             ", task=" +
             task +
             "]";
@@ -369,13 +393,15 @@ public class OperationContextImpl implements OperationContext {
       long storeLined;
       long replicationLined;
       long pageLined;
+      long completionLined;
 
       final IOCallback task;
 
-      TaskHolder(final IOCallback task, long storeLined, long replicationLined, long pageLined) {
+      TaskHolder(final IOCallback task, long storeLined, long replicationLined, long pageLined, long completionLined) {
          this.storeLined = storeLined;
          this.replicationLined = replicationLined;
          this.pageLined = pageLined;
+         this.completionLined = completionLined;
          this.task = task;
       }
    }
@@ -461,6 +487,8 @@ public class OperationContextImpl implements OperationContext {
       errorCode = -1;
       errorMessage = null;
       executorsPendingField = 0;
+      completedLinedUp = 0;
+      completed = 0;
 
       if (tasks != null) {
          tasks.clear();
