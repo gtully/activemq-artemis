@@ -16,15 +16,28 @@
  */
 package org.apache.activemq.artemis.core.protocol;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+import com.sun.net.httpserver.Authenticator;
+import com.sun.net.httpserver.Headers;
+import com.sun.net.httpserver.HttpContext;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpPrincipal;
+import com.sun.net.httpserver.HttpServer;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler;
@@ -54,9 +67,23 @@ import org.apache.activemq.artemis.core.server.protocol.websocket.WebSocketFrame
 import org.apache.activemq.artemis.core.server.protocol.websocket.WebSocketServerHandler;
 import org.apache.activemq.artemis.spi.core.protocol.ProtocolManager;
 import org.apache.activemq.artemis.utils.ConfigurationHelper;
+import org.jolokia.server.core.config.ConfigKey;
+import org.jolokia.server.core.config.Configuration;
+
+import org.jolokia.jvmagent.JolokiaServer;
+import org.jolokia.jvmagent.handler.JolokiaHttpHandler;
+import org.jolokia.server.core.config.StaticConfiguration;
+import org.jolokia.server.core.restrictor.RestrictorFactory;
+import org.jolokia.server.core.service.JolokiaServiceManagerFactory;
+import org.jolokia.server.core.service.api.JolokiaContext;
+import org.jolokia.server.core.service.api.JolokiaServiceManager;
+import org.jolokia.server.core.service.api.LogHandler;
+import org.jolokia.server.core.service.impl.StdoutLogHandler;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.FORBIDDEN;
+import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
+import static org.jolokia.server.core.service.JolokiaServiceManagerFactory.*;
 
 public class ProtocolHandler {
 
@@ -69,6 +96,7 @@ public class ProtocolHandler {
    private HttpKeepAliveRunnable httpKeepAliveRunnable;
 
    private final List<String> websocketSubprotocolIds;
+   private JolokiaServer jolokia;
 
    public ProtocolHandler(Map<String, ProtocolManager> protocolMap,
                           NettyAcceptor nettyAcceptor,
@@ -148,6 +176,7 @@ public class ProtocolHandler {
          }
       }
 
+      JolokiaHttpHandler jolokiaHttpHandler = null;
       @Override
       public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
          if (msg instanceof FullHttpRequest) {
@@ -182,7 +211,127 @@ public class ProtocolHandler {
             } else if (upgrade != null && upgrade.equalsIgnoreCase(NettyConnector.ACTIVEMQ_REMOTING)) { // HORNETQ-1391
                // Send the response and close the connection if necessary.
                ctx.writeAndFlush(new DefaultFullHttpResponse(HTTP_1_1, FORBIDDEN)).addListener(ChannelFutureListener.CLOSE);
-            }
+            } else if (request.uri().startsWith("/jolokia/")) {
+
+               try {
+                  if (jolokiaHttpHandler == null) {
+
+                     Configuration jolokiaCfg = new StaticConfiguration(ConfigKey.AGENT_ID, "agent");
+                     LogHandler log = new StdoutLogHandler(false);
+                     JolokiaServiceManager serviceManager = createJolokiaServiceManager(jolokiaCfg, log, RestrictorFactory.createRestrictor(jolokiaCfg, log), null);
+                     JolokiaContext jolokiaContext = serviceManager.start();
+                     jolokiaHttpHandler = new JolokiaHttpHandler(jolokiaContext);
+                     //     HttpContext context = pServer.createContext(contextPath, jolokiaHttpHandler);
+                     // Add authentication if configured
+                     //      final Authenticator authenticator = config.getAuthenticator();
+                     //      if (authenticator != null) {
+                     //         context.setAuthenticator(authenticator);
+                     //      }
+                     //jolokiaHttpHandler.
+                  }
+
+                  final Headers requestHeaders = new Headers() {
+                     @Override
+                     public List<String> get(Object key) {
+                        return request.headers().getAll((String) key);
+                     }
+                  };
+
+
+                     jolokiaHttpHandler.handle(new HttpExchange() {
+                        @Override
+                        public Headers getRequestHeaders() {
+                           return requestHeaders;
+                        }
+
+                        @Override
+                        public Headers getResponseHeaders() {
+                           return null;
+                        }
+
+                        @Override
+                        public URI getRequestURI() {
+                           return null;
+                        }
+
+                        @Override
+                        public String getRequestMethod() {
+                           return null;
+                        }
+
+                        @Override
+                        public HttpContext getHttpContext() {
+                           return null;
+                        }
+
+                        @Override
+                        public void close() {
+
+                        }
+
+                        @Override
+                        public InputStream getRequestBody() {
+                           return null;
+                        }
+
+                        @Override
+                        public OutputStream getResponseBody() {
+                           return null;
+                        }
+
+                        @Override
+                        public void sendResponseHeaders(int i, long l) throws IOException {
+
+                        }
+
+                        @Override
+                        public InetSocketAddress getRemoteAddress() {
+                           return null;
+                        }
+
+                        @Override
+                        public int getResponseCode() {
+                           return 0;
+                        }
+
+                        @Override
+                        public InetSocketAddress getLocalAddress() {
+                           return null;
+                        }
+
+                        @Override
+                        public String getProtocol() {
+                           return null;
+                        }
+
+                        @Override
+                        public Object getAttribute(String s) {
+                           return null;
+                        }
+
+                        @Override
+                        public void setAttribute(String s, Object o) {
+
+                        }
+
+                        @Override
+                        public void setStreams(InputStream inputStream, OutputStream outputStream) {
+
+                        }
+
+                        @Override
+                        public HttpPrincipal getPrincipal() {
+                           return null;
+                        }
+                     });
+
+                  } catch (IOException error) {
+                     error.printStackTrace();
+                     ctx.writeAndFlush(new DefaultFullHttpResponse(HTTP_1_1, INTERNAL_SERVER_ERROR)).addListener(ChannelFutureListener.CLOSE);
+                  }
+               } else {
+                  ctx.writeAndFlush(new DefaultFullHttpResponse(HTTP_1_1, FORBIDDEN)).addListener(ChannelFutureListener.CLOSE);
+               }
          } else {
             super.channelRead(ctx, msg);
          }
