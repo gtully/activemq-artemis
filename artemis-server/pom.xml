@@ -290,6 +290,28 @@
          <version>${mockserver.version}</version>
          <scope>test</scope>
       </dependency>
+      <dependency>
+         <groupId>org.apache.activemq</groupId>
+         <artifactId>artemis-dto</artifactId>
+         <version>2.32.0-SNAPSHOT</version>
+         <scope>compile</scope>
+      </dependency>
+      <dependency>
+         <groupId>jakarta.xml.bind</groupId>
+         <artifactId>jakarta.xml.bind-api</artifactId>
+         <version>${jakarta.xml.bind-api.version}</version>
+      </dependency>
+      <dependency>
+         <groupId>com.sun.xml.bind</groupId>
+         <artifactId>jaxb-impl</artifactId>
+         <version>${version.jaxb.runtime}</version>
+         <exclusions>
+            <exclusion>
+               <groupId>com.sun.activation</groupId>
+               <artifactId>jakarta.activation</artifactId>
+            </exclusion>
+         </exclusions>
+      </dependency>
    </dependencies>
 
    <profiles>
@@ -339,6 +361,29 @@
                   <goals>
                      <goal>test-jar</goal>
                   </goals>
+               </execution>
+            </executions>
+         </plugin>
+         <plugin>
+            <artifactId>maven-resources-plugin</artifactId>
+            <executions>
+               <execution>
+                  <id>copy-dto-schema</id>
+                  <phase>validate</phase>
+                  <goals>
+                     <goal>copy-resources</goal>
+                  </goals>
+                  <configuration>
+                     <outputDirectory>${project.basedir}/src/main/resources/schema</outputDirectory>
+                     <resources>
+                        <resource>
+                           <directory>../artemis-dto/target/schema/org.apache.activemq/dto</directory>
+                           <includes>
+                              <include>activemq.xsd</include>
+                           </includes>
+                        </resource>
+                     </resources>
+                  </configuration>
                </execution>
             </executions>
          </plugin>

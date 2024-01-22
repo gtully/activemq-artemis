@@ -20,6 +20,7 @@ import javax.xml.transform.dom.DOMSource;
 import javax.xml.validation.Validator;
 import java.io.InputStream;
 import java.lang.invoke.MethodHandles;
+import java.lang.management.ManagementFactory;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.util.ArrayList;
@@ -95,6 +96,7 @@ import org.apache.activemq.artemis.core.server.JournalType;
 import org.apache.activemq.artemis.core.server.SecuritySettingPlugin;
 import org.apache.activemq.artemis.core.server.cluster.impl.MessageLoadBalancingType;
 import org.apache.activemq.artemis.core.server.group.impl.GroupingHandlerConfiguration;
+import org.apache.activemq.artemis.core.server.management.ManagementContext;
 import org.apache.activemq.artemis.core.server.metrics.ActiveMQMetricsPlugin;
 import org.apache.activemq.artemis.core.server.plugin.ActiveMQServerPlugin;
 import org.apache.activemq.artemis.core.server.routing.KeyType;
@@ -106,6 +108,8 @@ import org.apache.activemq.artemis.core.settings.impl.PageFullMessagePolicy;
 import org.apache.activemq.artemis.core.settings.impl.ResourceLimitSettings;
 import org.apache.activemq.artemis.core.settings.impl.SlowConsumerPolicy;
 import org.apache.activemq.artemis.core.settings.impl.SlowConsumerThresholdMeasurementUnit;
+import org.apache.activemq.artemis.dto.ManagementContextDTO;
+import org.apache.activemq.artemis.dto.XmlUtil;
 import org.apache.activemq.artemis.utils.ByteUtil;
 import org.apache.activemq.artemis.utils.ClassloadingUtil;
 import org.apache.activemq.artemis.utils.DefaultSensitiveStringCodec;
@@ -144,6 +148,7 @@ import static org.apache.activemq.artemis.core.config.impl.Validators.POSITIVE_I
 import static org.apache.activemq.artemis.core.config.impl.Validators.ROUTING_TYPE;
 import static org.apache.activemq.artemis.core.config.impl.Validators.SLOW_CONSUMER_POLICY_TYPE;
 import static org.apache.activemq.artemis.core.config.impl.Validators.SLOW_CONSUMER_THRESHOLD_MEASUREMENT_UNIT;
+import static org.apache.activemq.artemis.dto.XmlUtil.unmarshallDto;
 
 /**
  * Parses an XML document according to the {@literal artemis-configuration.xsd} schema.
@@ -868,8 +873,20 @@ public final class FileConfigurationParser extends XMLConfigurationUtil {
       if (wildCardConfiguration.getLength() > 0) {
          parseWildcardConfiguration((Element) wildCardConfiguration.item(0), config);
       }
+
+      NodeList managementConfig = e.getElementsByTagName("management-context");
+      if (managementConfig.getLength() > 0) {
+         parseManagementContext((Element) managementConfig.item(0), config);
+      }
    }
 
+   private void parseManagementContext(Element item, Configuration config) throws Exception {
+      ManagementContextDTO dto = unmarshallDto(item, ManagementContextDTO.class);
+      ManagementContext managementContext = org.apache.activemq.artemis.cli.factory.jmx.ManagementFactory.create(dto, null);
+
+      System.err.println("here with acl: " + managementContext.getAccessControlList());
+
+   }
 
    private void parseJournalRetention(final Element e, final Configuration config) {
       NodeList retention = e.getElementsByTagName("journal-retention-directory");

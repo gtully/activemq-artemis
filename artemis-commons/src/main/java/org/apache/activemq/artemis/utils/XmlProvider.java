@@ -46,9 +46,11 @@ public class XmlProvider {
    public static final String IGNORE_COMMENTS_PROPERTY = "IGNORE_COMMENTS";
    public static final String IGNORE_ELEMENT_CONTENT_WHITESPACE_PROPERTY = "IGNORE_ELEMENT_CONTENT_WHITESPACE";
 
+   private static final String ACTIVEMQ_DTO_NS = "http://activemq.apache.org/schema";
    private static final String ACTIVEMQ_CORE_NS = "urn:activemq:core";
    private static final String ACTIVEMQ_JMS_NS = "urn:activemq:jms";
 
+   private static final String ARTEMIS_DTO_CONFIGURATION_SCHEMA_SID = "activemq.xsd";
    private static final String ARTEMIS_XML_SCHEMA_SID = "xml.xsd";
    private static final String ARTEMIS_CONFIGURATION_SCHEMA_SID = "artemis-configuration.xsd";
    private static final String ARTEMIS_JMS_SCHEMA_SID = "artemis-jms.xsd";
@@ -56,6 +58,7 @@ public class XmlProvider {
    private static final String ARTEMIS_SCHEMA_BASE_URL = "schema/";
    private static final String ARTEMIS_XML_SCHEMA_URL = ARTEMIS_SCHEMA_BASE_URL + ARTEMIS_XML_SCHEMA_SID;
    private static final String ARTEMIS_CONFIGURATION_SCHEMA_URL = ARTEMIS_SCHEMA_BASE_URL + ARTEMIS_CONFIGURATION_SCHEMA_SID;
+   private static final String ARTEMIS_DTO_CONFIGURATION_SCHEMA_URL = ARTEMIS_SCHEMA_BASE_URL + ARTEMIS_DTO_CONFIGURATION_SCHEMA_SID;
    private static final String ARTEMIS_JMS_SCHEMA_URL = ARTEMIS_SCHEMA_BASE_URL + ARTEMIS_JMS_SCHEMA_SID;
 
    private static boolean xxeEnabled = !"".equals(System.getProperty(ARTEMIS_DISABLE_XXE_PROPERTY)) &&
@@ -148,6 +151,8 @@ public class XmlProvider {
                return newLSInput(publicId, systemId, baseURI, Thread.currentThread().getContextClassLoader().getResourceAsStream(ARTEMIS_CONFIGURATION_SCHEMA_URL));
             } else if (XMLConstants.W3C_XML_SCHEMA_NS_URI.equals(type) && ACTIVEMQ_JMS_NS.equals(namespaceURI) && ARTEMIS_JMS_SCHEMA_SID.equals(systemId)) {
                return newLSInput(publicId, systemId, baseURI, Thread.currentThread().getContextClassLoader().getResourceAsStream(ARTEMIS_JMS_SCHEMA_URL));
+            } else if (XMLConstants.W3C_XML_SCHEMA_NS_URI.equals(type) && ACTIVEMQ_DTO_NS.equals(namespaceURI) && ARTEMIS_DTO_CONFIGURATION_SCHEMA_SID.equals(systemId)) {
+               return newLSInput(publicId, systemId, baseURI, Thread.currentThread().getContextClassLoader().getResourceAsStream(ARTEMIS_DTO_CONFIGURATION_SCHEMA_URL));
             }
 
             return null;

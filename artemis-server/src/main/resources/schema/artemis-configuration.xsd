@@ -16,6 +16,7 @@
   limitations under the License.
 -->
 <xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+            xmlns:dtoNs="http://activemq.apache.org/schema"
             xmlns="urn:activemq:core"
             targetNamespace="urn:activemq:core"
             attributeFormDefault="unqualified"
@@ -24,10 +25,20 @@
 
    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" schemaLocation="xml.xsd"/>
 
+   <xsd:import namespace="http://activemq.apache.org/schema" schemaLocation="activemq.xsd"/>
+
    <xsd:element name="core" type="configurationType"/>
 
    <xsd:complexType name="configurationType">
       <xsd:all>
+         <xsd:element name="management-context" type="dtoNs:managementContextDTO" maxOccurs="1" minOccurs="0">
+            <xsd:annotation>
+               <xsd:documentation>
+                  If set, it will be used to configure JMX. A reloadable alternative to management.xml.
+               </xsd:documentation>
+            </xsd:annotation>
+         </xsd:element>
+
          <xsd:element name="name" type="xsd:string" maxOccurs="1" minOccurs="0">
             <xsd:annotation>
                <xsd:documentation>

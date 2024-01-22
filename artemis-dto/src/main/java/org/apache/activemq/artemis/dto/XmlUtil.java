@@ -17,6 +17,8 @@
 package org.apache.activemq.artemis.dto;
 
 import javax.xml.bind.JAXBContext;
+import javax.xml.bind.JAXBElement;
+import javax.xml.bind.JAXBException;
 import javax.xml.bind.Unmarshaller;
 import javax.xml.stream.XMLStreamReader;
 import javax.xml.stream.util.StreamReaderDelegate;
@@ -32,6 +34,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.activemq.artemis.utils.XmlProvider;
+import org.w3c.dom.Element;
 
 public class XmlUtil {
 
@@ -85,13 +88,13 @@ public class XmlUtil {
                               String artemisHome,
                               String artemisInstance,
                               URI artemisURIInstance) throws Exception {
-      JAXBContext jaxbContext = JAXBContext.newInstance("org.apache.activemq.artemis.dto");
+      JAXBContext jaxbContext = getJaxbContext();
 
       Unmarshaller unmarshaller = jaxbContext.createUnmarshaller();
       InputStream xsdStream = XmlUtil.class.getClassLoader().getResourceAsStream("org.apache.activemq/dto/activemq.xsd");
       StreamSource xsdSource = new StreamSource(xsdStream);
       Schema schema = XmlProvider.newSchema(xsdSource, Collections.singletonMap(
-         "http://apache.org/xml/features/validation/schema-full-checking", false));
+         "http://apache.org/xml/features/validation/schema-full-checking", true));
       unmarshaller.setSchema(schema);
 
       Properties props = new Properties(System.getProperties());
@@ -112,6 +115,17 @@ public class XmlUtil {
       reader = new PropertiesFilter(reader, props);
 
       return clazz.cast(unmarshaller.unmarshal(reader));
+   }
+
+   private static JAXBContext getJaxbContext() throws JAXBException {
+      return JAXBContext.newInstance("org.apache.activemq.artemis.dto");
+   }
+
+   public static <T> T unmarshallDto(Element item, Class<T> type) throws Exception {
+      JAXBContext jaxbContext = getJaxbContext();
+      Unmarshaller unmarshaller = jaxbContext.createUnmarshaller();
+      JAXBElement<T> unmarshalledElement = unmarshaller.unmarshal(item, type);
+      return unmarshalledElement.getValue();
    }
 
 }

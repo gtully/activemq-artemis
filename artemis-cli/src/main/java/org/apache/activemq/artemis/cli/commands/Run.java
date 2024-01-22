@@ -93,6 +93,7 @@ public class Run extends LockAbstract {
             @Override
             public void preActivate() {
                try {
+                  managementContext.init();
                   managementContext.start();
                } catch (Exception e) {
                   ActiveMQServerLogger.LOGGER.unableStartManagementContext(e);
@@ -127,8 +128,8 @@ public class Run extends LockAbstract {
             }
          }
          server.getServer().setProperties(properties);
-         server.start();
          server.getServer().addExternalComponent(managementContext, false);
+         server.start();
 
          if (broker.web != null) {
             broker.components.add(broker.web);

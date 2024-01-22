@@ -36,7 +36,6 @@ public class BrokerDTO {
    @XmlElementRef(required = false)
    public WebServerDTO web;
 
-   @XmlElementRef
    public List<ComponentDTO> components = new ArrayList<>();
 
 }

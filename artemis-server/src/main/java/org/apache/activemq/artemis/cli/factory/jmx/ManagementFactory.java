@@ -157,7 +157,9 @@ public class ManagementFactory {
          context.setSecurityManager(securityManager);
       }
 
-      context.init();
+      // what to set up the static acl list only when we are ready, independent of create
+      // which can happen many times with config reload
+      //  context.init();
 
       return context;
    }

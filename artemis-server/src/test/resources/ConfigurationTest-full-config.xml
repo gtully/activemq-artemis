@@ -18,7 +18,29 @@
         xmlns="urn:activemq"
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:schemaLocation="urn:activemq ../../../../activemq-server/src/main/resources/schema/artemis-server.xsd">
+
    <core xmlns="urn:activemq:core">
+      <management-context xmlns:dtoNs="http://activemq.apache.org/schema">
+         <dtoNs:connector connector-port="1099"/>
+         <dtoNs:authorisation>
+            <dtoNs:allowlist>
+               <dtoNs:entry domain="hawtio"/>
+            </dtoNs:allowlist>
+            <dtoNs:default-access>
+               <dtoNs:access method="list*" roles="amq"/>
+               <dtoNs:access method="get*" roles="amq"/>
+               <dtoNs:access method="is*" roles="amq"/>
+               <dtoNs:access method="set*" roles="amq"/>
+               <dtoNs:access method="*" roles="amq"/>
+            </dtoNs:default-access>
+            <dtoNs:role-access>
+              <dtoNs:match domain="org.apache.activemq.artemis">
+                <dtoNs:access method="*" roles="amq"/>
+              </dtoNs:match>
+            </dtoNs:role-access>
+         </dtoNs:authorisation>
+      </management-context>
+
       <name>SomeNameForUseOnTheApplicationServer</name>
       <resolve-protocols>false</resolve-protocols>
       <persistence-enabled>false</persistence-enabled>
